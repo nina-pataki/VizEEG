@@ -6,9 +6,11 @@ import unicodedata
 import math
 
 def vizEEG(h5File,h5Path):
-    global vb, plItem, gLeft, gRight, gTop, gBottom, dataset
+    global vb, plItem, gLeft, gRight, gTop, gBottom, dataset, visPlot, lastVisRange, plots
     app = QtGui.QApplication([])
-
+   # w = QtGui.QWidget()
+   # layout = QtGui.QGridLayout()
+  #  w.setLayout(layout)
     #load hdf5 data
     f = h5py.File(h5File,'r')
     dataset = f[h5Path]
@@ -19,18 +21,23 @@ def vizEEG(h5File,h5Path):
     if (plItem.listDataItems() is not []): 
         pl.removeItem(plItem.listDataItems()[0])
     vb = plItem.getViewBox()
+   # layout.addWidget(pl)
+    #spinbox = pg.SpinBox(value=5000, int=True, dec=True, minStep=1, step=100)
+    #layout.addWidget(spinbox)
     shift = 0 
-    plots = []    
+    plots = []
+        
     print "...loading data, please wait..."
     #data initialization
     rateOfDec = dataset.shape[1]/(int(vb.width())*200)
-    print "debug: init rate: ", rateOfDec, "vb.width: ", vb.width()
+    #print "debug: init rate: ", rateOfDec, "vb.width: ", vb.width()
     x = range(dataset.shape[1])[::rateOfDec]
-    print "debug: length of x array: ", len(x)
+    #print "debug: length of x array: ", len(x)
     for ch in range(dataset.shape[0]): #ch - channel number
         y = dataset[ch][::rateOfDec]
         plots.append((pl.plot(x=x,y=y+shift),shift,ch))
         shift+=5000
+    visPlot = 1
 
     print "initial data loaded"
     vb.setRange(xRange=x, yRange=(plots[0][1]-5000,plots[-1][1]+5000), padding=0)
@@ -38,25 +45,25 @@ def vizEEG(h5File,h5Path):
     gRight = dataset.shape[1]
     gTop = plots[-1][1]
     gBottom = 0
+    lastVisRange = dataset.shape[1]
 
     #function that indicates if data update is needed when dragging
-    def outOfBounds():
-        global gLeft, gRight, gTop, gBottom
-        print "vosli sme do outofbounds"
+    def outOfBounds(left, right, top, bottom):
+        print "debug: left:", left, "right:", right, "top:", top, "bottom:", bottom
         if (vb.viewRange()[0][0] < 0 or vb.viewRange()[0][1] > dataset.shape[1] or vb.viewRange()[1][0] < -5000 or vb.viewRange()[1][1] > plots[-1][1]+5000):
             return False
         else:
-            return vb.viewRange()[0][0] < gLeft or vb.viewRange()[0][1] > gRight or vb.viewRange()[1][0] < gBottom or vb.viewRange()[1][1] > gTop
+            return vb.viewRange()[0][0] < left or vb.viewRange()[0][1] > right or vb.viewRange()[1][0] < bottom or vb.viewRange()[1][1] > top
 
     #function for updating data plots when zooming in/out or dragging the scene
-    def dataUpdate():
-        global vb, plItem, dataset
+    def dataUpdate(): #TODO stale problemy s spravnym zobrazovanim pri zoom out a panning, zoom a pan hrozne seka, ked dokoncis zisti memory consumption
+        global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange
         visXRange = int(vb.viewRange()[0][1] - vb.viewRange()[0][0])
         rateOfDec = visXRange/(int(vb.width())*200)
-        valsOnPixel = len(plots[0][0].getData()[1][vb.viewRange()[0][0]:vb.viewRange()[0][1]]) / int(vb.width())        
-        print "debug: visX: ", visXRange, "valsOnPixel: ", valsOnPixel
-        if (valsOnPixel<=100 or valsOnPixel>300 or outOfBounds()):
+        valsOnPixel = len([x for x in plots[visPlot][0].getData()[0] if x>=vb.viewRange()[0][0] and x<=vb.viewRange()[0][1]]) / int(vb.width())
+        if (valsOnPixel<=100 or lastVisRange<visXRange or outOfBounds(gLeft,gRight,gTop,gBottom)):
             plItem.setTitle("loading data")
+            vb.setMouseEnabled(False,False)
 
             if (vb.viewRange()[0][0] < 0):
                 XLeftBound = 0
@@ -69,21 +76,33 @@ def vizEEG(h5File,h5Path):
                 XRightBound = int(vb.viewRange()[0][1])
 
             visYRange = int(vb.viewRange()[1][1] - vb.viewRange()[1][0])
-            updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>vb.viewRange()[1][0]+visYRange/2 and xAxPos<vb.viewRange()[1][1]+visYRange/2]
-            print "debug: new rate: ", rateOfDec
+            updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]+visYRange/2 and xAxPos<=vb.viewRange()[1][1]+visYRange/2]
             x = range(dataset.shape[1])[XLeftBound:XRightBound:rateOfDec]
-            print "debug: length of x array in zooming: ", len(x)
             for (p,sh,ch) in updatePlots:
-                p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec])
-            
+                p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec]+sh)
+            visPlot = updatePlots[0][2]
             gLeft = XLeftBound
             gRight = XRightBound
             gTop = updatePlots[-1][1]
             gBottom = updatePlots[0][1]
-            
+            print "debug: gLeft:", gLeft, "gRight:", gRight, "gTop:", gTop, "gBottom:", gBottom
             plItem.setTitle("Signals")
+            vb.setMouseEnabled(True,True)
+        lastVisRange = visXRange
+    
+    def shiftChange(sb):
+        global plots, vb
+        changedShift = 0
+        val = sb.value()
+        for i in range(len(plots)):
+            y = plots[i][0].getData()[1]
+            plots[i][0].setData(y=y+changedShift)
+            plots[i][2] = changedShift
+            changedShift+=val
 
     vb.sigRangeChanged.connect(dataUpdate)
+  #  spinbox.sigValueChanged.connect(shiftChange)
+  #  w.show()
    
 if __name__ == '__main__':
     import sys
