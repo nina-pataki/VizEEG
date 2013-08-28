@@ -6,7 +6,7 @@ import unicodedata
 import math
 
 def vizEEG(h5File,h5Path):
-    global vb, plItem, gLeft, gRight, gTop, gBottom, dataset, visPlot, lastVisRange, plots
+    global vb, plItem, gLeft, gRight, gTop, gBottom, dataset, visPlot, lastVisRange, plots, rateOfDec
     app = QtGui.QApplication([])
    # w = QtGui.QWidget()
    # layout = QtGui.QGridLayout()
@@ -29,8 +29,8 @@ def vizEEG(h5File,h5Path):
         
     print "...loading data, please wait..."
     #data initialization
-    rateOfDec = dataset.shape[1]/(int(vb.width())*200)
-    #print "debug: init rate: ", rateOfDec, "vb.width: ", vb.width()
+    rateOfDec = int(np.round(dataset.shape[1]/(vb.width()*200)))
+    print "debug: init rate: ", rateOfDec, "vb.width: ", vb.width()
     x = range(dataset.shape[1])[::rateOfDec]
     #print "debug: length of x array: ", len(x)
     for ch in range(dataset.shape[0]): #ch - channel number
@@ -46,10 +46,10 @@ def vizEEG(h5File,h5Path):
     gTop = plots[-1][1]
     gBottom = 0
     lastVisRange = dataset.shape[1]
+    print vb.viewPixelSize()[0]/rateOfDec
 
     #function that indicates if data update is needed when dragging
     def outOfBounds(left, right, top, bottom):
-        print "debug: left:", left, "right:", right, "top:", top, "bottom:", bottom
         if (vb.viewRange()[0][0] < 0 or vb.viewRange()[0][1] > dataset.shape[1] or vb.viewRange()[1][0] < -5000 or vb.viewRange()[1][1] > plots[-1][1]+5000):
             return False
         else:
@@ -57,26 +57,30 @@ def vizEEG(h5File,h5Path):
 
     #function for updating data plots when zooming in/out or dragging the scene
     def dataUpdate(): #TODO stale problemy s spravnym zobrazovanim pri zoom out a panning, zoom a pan hrozne seka, ked dokoncis zisti memory consumption
-        global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange
+        global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange, rateOfDec
         visXRange = int(vb.viewRange()[0][1] - vb.viewRange()[0][0])
-        rateOfDec = visXRange/(int(vb.width())*200)
-        valsOnPixel = len([x for x in plots[visPlot][0].getData()[0] if x>=vb.viewRange()[0][0] and x<=vb.viewRange()[0][1]]) / int(vb.width())
-        if (valsOnPixel<=100 or lastVisRange<visXRange or outOfBounds(gLeft,gRight,gTop,gBottom)):
+        valsOnPixel = vb.viewPixelSize()[0]/rateOfDec
+        if ((valsOnPixel<=50 and rateOfDec > 1) or outOfBounds(gLeft,gRight,gTop,gBottom)):
             plItem.setTitle("loading data")
+            print "loading data..."
             vb.setMouseEnabled(False,False)
+            rateOfDec = int(np.round(vb.viewPixelSize()[0]/200))
+            if rateOfDec < 1:
+                rateOfDec = 1
 
-            if (vb.viewRange()[0][0] < 0):
+            XLeftBound = int(np.floor(vb.viewRange()[0][0]-visXRange/4))
+            if XLeftBound< 0:
                 XLeftBound = 0
-            else:
-                XLeftBound = int(vb.viewRange()[0][0])
 
-            if (vb.viewRange()[0][1] > dataset.shape[1]):
+            XRightBound = int(np.floor(vb.viewRange()[0][1] + visXRange/4))
+            if XRightBound > dataset.shape[1]:
                 XRightBound = dataset.shape[1]
-            else:
-                XRightBound = int(vb.viewRange()[0][1])
 
             visYRange = int(vb.viewRange()[1][1] - vb.viewRange()[1][0])
-            updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]+visYRange/2 and xAxPos<=vb.viewRange()[1][1]+visYRange/2]
+
+            visRange = vb.viewRange()
+
+            updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]-visYRange/4 and xAxPos<=vb.viewRange()[1][1]+visYRange/4]
             x = range(dataset.shape[1])[XLeftBound:XRightBound:rateOfDec]
             for (p,sh,ch) in updatePlots:
                 p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec]+sh)
@@ -88,6 +92,7 @@ def vizEEG(h5File,h5Path):
             print "debug: gLeft:", gLeft, "gRight:", gRight, "gTop:", gTop, "gBottom:", gBottom
             plItem.setTitle("Signals")
             vb.setMouseEnabled(True,True)
+            print "loading data OK"
         lastVisRange = visXRange
     
     def shiftChange(sb):
