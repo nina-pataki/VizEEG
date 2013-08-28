@@ -50,8 +50,6 @@ def vizEEG(h5File,h5Path):
 
     #function that indicates if data update is needed when dragging
     def outOfBounds(left, right, top, bottom):
-        print "debug: left:", left, "right:", right, "top:", top, "bottom:", bottom
-        print vb.viewRange()
         if (vb.viewRange()[0][0] < 0 or vb.viewRange()[0][1] > dataset.shape[1] or vb.viewRange()[1][0] < -5000 or vb.viewRange()[1][1] > plots[-1][1]+5000):
             return False
         else:
@@ -62,15 +60,10 @@ def vizEEG(h5File,h5Path):
         global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange, rateOfDec
         visXRange = int(vb.viewRange()[0][1] - vb.viewRange()[0][0])
         valsOnPixel = vb.viewPixelSize()[0]/rateOfDec
-        print vb.viewPixelSize()
-        print valsOnPixel
-        print rateOfDec
-        #if ((valsOnPixel<=50 and rateOfDec > 1) or lastVisRange<visXRange or outOfBounds(gLeft,gRight,gTop,gBottom)):
         if ((valsOnPixel<=50 and rateOfDec > 1) or outOfBounds(gLeft,gRight,gTop,gBottom)):
             plItem.setTitle("loading data")
             print "loading data..."
             vb.setMouseEnabled(False,False)
-            #rateOfDec = int(np.round(visXRange/(vb.width()*200)))
             rateOfDec = int(np.round(vb.viewPixelSize()[0]/200))
             if rateOfDec < 1:
                 rateOfDec = 1
@@ -83,26 +76,14 @@ def vizEEG(h5File,h5Path):
             if XRightBound > dataset.shape[1]:
                 XRightBound = dataset.shape[1]
 
-            #if (vb.viewRange()[0][0] < 0):
-            #    XLeftBound = 0
-            #else:
-            #    XLeftBound = int(np.floor(vb.viewRange()[0][0]))
-
-            #if (vb.viewRange()[0][1] > dataset.shape[1]):
-            #    XRightBound = dataset.shape[1]
-            #else:
-            #    XRightBound = int(vb.viewRange()[0][1])
-
             visYRange = int(vb.viewRange()[1][1] - vb.viewRange()[1][0])
 
             visRange = vb.viewRange()
 
-            #updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]+visYRange/2 and xAxPos<=vb.viewRange()[1][1]+visYRange/2]
             updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]-visYRange/4 and xAxPos<=vb.viewRange()[1][1]+visYRange/4]
             x = range(dataset.shape[1])[XLeftBound:XRightBound:rateOfDec]
             for (p,sh,ch) in updatePlots:
                 p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec]+sh)
-            #vb.setRange(visRange)
             visPlot = updatePlots[0][2]
             gLeft = XLeftBound
             gRight = XRightBound
