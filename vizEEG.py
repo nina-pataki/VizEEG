@@ -2,44 +2,55 @@ import numpy as np
 import pyqtgraph as pg
 import h5py
 from pyqtgraph.Qt import QtGui
-import unicodedata #is this necessary?
 import math
 
 class OpenedWindow():
 
-    def __init__(data): #how is self used, look how classes are writen properly
+    def __init__(self, data): 
+
+        #create the window
         self.win = QtGui.QMainWindow()
         self.cw = QtGui.QWidget()
-        win.setCentralWidget(cw)
+        self.win.setCentralWidget(cw)
+
+        #create a layout
         self.layout = QtGui.QVBoxLayout()
         self.row1 = QtGui.QHBoxLayout()
         self.row2 = QtGui.QHBoxLayout()
-        layout.addLayout(row1)
-        layout.addLayout(row2)
-        cw.setLayout(layout)
-        win.show()
+        self.layout.addLayout(self.row1)
+        self.layout.addLayout(self.row2)
+        self.cw.setLayout(self.layout)
+        self.win.show()
+
+        #fill the layout with widgets
         self.plWidget = pg.PlotWidget()
         self.plots = []
-        shift = 0
+        self.shift = 0
         for i in range(data[1][0]): #this should be channel count
-            plots.append(plWidget.plot(x=data[0],y=data[1][i]+shift))
+            self.plots.append(self.plWidget.plot(x=data[0],y=data[1][i]+shift))
             shift += 5000
+
         self.slider = pg.InfiniteLine()
-        plot.addItem(slider)
-        row1.addWidget(plWidget)
+        self.plWidget.addItem(slider)
+        self.row1.addWidget(plWidget)
+
         self.btn1 = QtGui.QPushButton("Otevri neco")
         self.btn2 = QtGui.QPushButton("Otevri neco jineho")
-        row2.addWidget(btn1)
-        row2.addWidget(btn2)
+        self.row2.addWidget(btn1)
+        self.row2.addWidget(btn2)
 
 #TODO: axes labels, openNewWindow function, clean up the code, add comments, what language should I use in the UI?, add data processing remarks to the console output, test the memory usage and write help
 
 def vizEEG(h5File,h5Path):
     global vb, plItem, gLeft, gRight, gTop, gBottom, dataset, visPlot, lastVisRange, plots, rateOfDec, lr, checkBoxes
+
+    #create the main window
     app = QtGui.QApplication([])
     win = QtGui.QMainWindow()
     cw = QtGui.QWidget()
     win.setCentralWidget(cw)
+
+    #create a layout
     layout = QtGui.QHBoxLayout()
     col1 = QtGui.QVBoxLayout()
     col2 = QtGui.QVBoxLayout()
@@ -48,15 +59,10 @@ def vizEEG(h5File,h5Path):
     cw.setLayout(layout)
     win.show()    
 
-    #load hdf5 data
-    f = h5py.File(h5File,'r')
-    dataset = f[h5Path]
-
+    #create widgets in the first row of the layout
     plWidget = pg.PlotWidget()
     plItem = plWidget.getPlotItem() 
-    plItem.setTitle(f.filename) 
-    if (plItem.listDataItems() is not []): 
-        pl.removeItem(plItem.listDataItems()[0])
+
     vb = plItem.getViewBox()
     col1.addWidget(plWidget)
     spinbox = pg.SpinBox(value=5000, int=True, dec=True, minStep=1, step=100)
@@ -64,26 +70,30 @@ def vizEEG(h5File,h5Path):
     openWindowBtn = QtGui.QPushButton("Otevri vyber v novem okne")
     col1.addWidget(openWindowBtn)
     
+    #data initialization and creation of the second row of the layout
+    f = h5py.File(h5File,'r')
+    dataset = f[h5Path]
     shift = 0 
     plots = []
     checkBoxes = []    
     
-    print "...loading data, please wait..."
-    #data initialization
+    lr = pg.LinearRegionItem(bounds=[0,dataset.shape[1]])
+    plWidget.addItem(lr)
+    plItem.setTitle(f.filename) 
+
+    print "...nacitam data, prosim pockejte..."
+
+    #create plots of hdf5 data
     rateOfDec = int(np.round(dataset.shape[1]/(vb.width()*200)))
-    print "debug: init rate: ", rateOfDec, "vb.width: ", vb.width()
     x = range(dataset.shape[1])[::rateOfDec]
     i = 0
-    #print "debug: length of x array: ", len(x)
+
     for ch in range(dataset.shape[0]): #ch - channel number
         checkBoxes.append(QtGui.QCheckBox("Channel "+str(i)))
         y = dataset[ch][::rateOfDec]
         plots.append((plWidget.plot(x=x,y=y+shift),shift,ch))
         shift+=5000
         i+=1
-
-    lr = pg.LinearRegion(bounds=[0,dataset.shape[1]])
-    plWidget.addItem(lr)
 
     for cb in checkBoxes:
         col2.addWidget(cb)
@@ -92,16 +102,18 @@ def vizEEG(h5File,h5Path):
     ckNoneBtn = QtGui.QPushButton("Odebrat vsechny kanaly")
     col2.addWidget(ckAllBtn)
     col2.addWidget(ckNoneBtn)
+
     visPlot = 1
 
-    print "initial data loaded"
+    print "data nactena"
+
     vb.setRange(xRange=x, yRange=(plots[0][1]-5000,plots[-1][1]+5000), padding=0)
     gLeft = 0
     gRight = dataset.shape[1]
     gTop = plots[-1][1]
     gBottom = 0
     lastVisRange = dataset.shape[1]
-    print vb.viewPixelSize()[0]/rateOfDec
+#    print vb.viewPixelSize()[0]/rateOfDec
 
     #function that indicates if data update is needed when dragging
     def outOfBounds(left, right, top, bottom):
@@ -113,13 +125,16 @@ def vizEEG(h5File,h5Path):
     #function for updating data plots when zooming in/out or dragging the scene
     def dataUpdate(): #TODO zooming out, think it through
         global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange, rateOfDec
+
         visXRange = int(vb.viewRange()[0][1] - vb.viewRange()[0][0])
         valsOnPixel = vb.viewPixelSize()[0]/rateOfDec
+
         if ((valsOnPixel<=50 and rateOfDec > 1) or outOfBounds(gLeft,gRight,gTop,gBottom) or valsOnPixel>500):
-           # plItem.setTitle("loading data")
-            print "loading data..."
+
+            print "nacitam data"
             vb.setMouseEnabled(False,False)
             rateOfDec = int(np.round(vb.viewPixelSize()[0]/200))
+
             if rateOfDec < 1:
                 rateOfDec = 1
 
@@ -136,22 +151,27 @@ def vizEEG(h5File,h5Path):
             visRange = vb.viewRange()
 
             updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]-visYRange/4 and xAxPos<=vb.viewRange()[1][1]+visYRange/4]
+
             x = range(dataset.shape[1])[XLeftBound:XRightBound:rateOfDec]
+
             for (p,sh,ch) in updatePlots:
                 p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec]+sh)
+
             visPlot = updatePlots[0][2]
             gLeft = XLeftBound
             gRight = XRightBound
             gTop = updatePlots[-1][1]
             gBottom = updatePlots[0][1]
+
             print "debug: gLeft:", gLeft, "gRight:", gRight, "gTop:", gTop, "gBottom:", gBottom
-           # plItem.setTitle("Signals")
             vb.setMouseEnabled(True,True)
-            print "loading data OK"
+            print "data nactena v poradku"
+
         lastVisRange = visXRange
     
     def shiftChange(sb): #sb is spinbox
         global plots, vb
+
         changedShift = 0
         val = sb.value()
         for p in plots:
@@ -170,7 +190,7 @@ def vizEEG(h5File,h5Path):
         for cb in checkBoxes:
             cb.setCheckState(0)
 
-    def openWindowBtn(): #its probably wise to write some class for new windows, since we will need some buttons in them and compute the statistics, what about memory management? what will happen if the window is closed, will it be removed from the memory, or not? it seems that PlotWindow doesnt work right
+    def openNewWindow(): #its probably wise to write some class for new windows, since we will need some buttons in them and compute the statistics, what about memory management? what will happen if the window is closed, will it be removed from the memory, or not? it seems that PlotWindow doesnt work right
         global lr, dataset
         lb = int(np.round(lr.getRegion()[0]))
         rb = int(np.round(lr.getRegion()[1]))
