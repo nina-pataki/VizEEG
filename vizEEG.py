@@ -99,6 +99,10 @@ class vizEEG(QtGui.QMainWindow):
         layout = QtGui.QHBoxLayout()
         col1 = QtGui.QVBoxLayout()
         col2 = QtGui.QVBoxLayout()
+        ckWidget = QtGui.QWidget()
+        ckLayout = QtGui.QVBoxLayout()
+        scrArea = QtGui.QScrollArea()
+        col2.addWidget(scrArea)
         layout.addLayout(col1)
         layout.addLayout(col2)
         cw.setLayout(layout)
@@ -142,13 +146,18 @@ class vizEEG(QtGui.QMainWindow):
             shift+=5000
 
         #check boxes for choosing channels
-        for cb in self.checkBoxes:
-            col2.addWidget(cb)
+            for cb in self.checkBoxes:
+                ckLayout.addWidget(cb)
+                cb.setContentsMargins(-1,0,-1,0)
 
         ckAllBtn = QtGui.QPushButton("Check all channels")
         ckNoneBtn = QtGui.QPushButton("Uncheck all channels")
         col2.addWidget(ckAllBtn)
         col2.addWidget(ckNoneBtn)
+        ckWidget.setLayout(ckLayout)
+        #ckLayout.addSpacing(0)
+        scrArea.setWidget(ckWidget)
+        
         
         self.vb.setRange(xRange=x, yRange=(self.plots[0][2]-5000,self.plots[-1][2]+5000), padding=0)
         self.leftB = 0
