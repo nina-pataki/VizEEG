@@ -10,10 +10,9 @@ LOG = 10
 class loadingTask(QtCore.QThread):
     def __init__(self, parent=None):
         QtCore.QThread.__init__(self,parent)
-        self.stopping = False
         self.lock = QtCore.QMutex()
 
-    def loadData(self,ch1,ch2, lb, rb, exp, index, fileName, filePath):
+    def loadData(self,ch1,ch2, lb, rb, index, fileName, filePath):
         print "... loading data..."
         self.fileName = fileName
         self.filePath = filePath
@@ -23,12 +22,12 @@ class loadingTask(QtCore.QThread):
         self.running = True
         self.ch1 = ch1
         self.ch2 = ch2
-        self.exp = exp
         self.start()
 
     def run(self):
 
         self.lock.lock()
+        self.stopping = False
 
         f = h5py.File(self.fileName, 'r')
         self.dataset = f[self.filePath]
@@ -45,30 +44,28 @@ class loadingTask(QtCore.QThread):
             minDataLevels.append(minData[l])
         
         exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(maxDataLevels[self.index].shape[0],LOG)))
-        print "exp: ", exp
-        print "self.exp: ", self.exp
         left = np.round(self.lb/(LOG**exp))
         right = np.round(self.rb/(LOG**exp))
         self.x = range(self.dataset.shape[0])[self.lb:self.rb:LOG**exp]
-        print "shape of x: ", len(self.x)
-        print "lenght of maxDataLevels: ", len(maxDataLevels)
-        print "index: ", self.index
-        print "ch1: ", self.ch1, "ch2: ", self.ch2
         print "lb: ", self.lb, "rb: ", self.rb
-        print "left: ", left, "right: ", right        
-        self.y1 = maxDataLevels[self.index][left:right,self.ch1:self.ch2+1]
-        self.y2 = minDataLevels[self.index][left:right,self.ch1:self.ch2+1] 
-       # if (abs(self.y1.shape[0]-len(self.x)==1)):
-       #     if((y1.shape[0]>len(self.x)) and (x[-1]==self.rb)):
-       #         self.x.append(self.rb*(LOG**exp))
-       #     elif (y1.shape[0]<len(x)):
-       #         self.x.pop()
-       #     else: 
-       #         x.append(self.rb)
+        print "left: ", left, "right: ", right
+        print "ch1: ", self.ch1
+        print "ch2: ", self.ch2
+        self.y1 = np.zeros((right-left,(self.ch2-self.ch1)+1))
+        self.y2 = np.zeros((right-left,(self.ch2-self.ch1)+1)) 
+        j = 0
+        for i in range(self.ch1,self.ch2+1):
+            if (self.stopping):
+                break        
+            else:
+                self.y1[:,j] = maxDataLevels[self.index][left:right,i]
+                self.y2[:,j] = minDataLevels[self.index][left:right,i]
+                j += 1
                 
         self.lock.unlock()
     def stopTask(self):
-        self.stopping = True     
+        self.stopping = True
+        print "cancelling thread"     
 
 #TODO: axis labels, scrolling of checkbox area
 
@@ -133,33 +130,16 @@ class vizEEG(QtGui.QMainWindow):
         for i in range(len(self.maxDataLevels)): 
             dataDeg = math.log(self.maxDataLevels[i].shape[0],LOG)
             if (int(np.ceil(dataDeg)) == VPPDeg): 
-               # self.maxDataDisplayed = self.maxDataLevels[i]
-               # self.minDataDisplayed = self.minDataLevels[i]
                 self.index = i
-               # displDataDeg = int(np.floor(dataDeg))
-        #print "dlzka vybrateho datasetu: ", self.maxDataDisplayed.shape[0]
-        self.exp = int(np.floor(math.log(self.dataset.shape[0], LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
-        #self.VPPDisplDeg = int(np.floor(np.log10((self.dataset.shape[0]/self.vb.width())/(10**self.exp))))
-        print "---------intialisation debug-----------"
-        print "VPPDeg: ", VPPDeg
-        print "VPP*vb.width: ", VPP*self.vb.width()
-        print "index: ", self.index
-        print "maxDataLevels length: ", len(self.maxDataLevels)
-        print "exp: ", self.exp
-        #print "VPPDisplDeg: ", self.VPPDisplDeg
-        x = range(self.dataset.shape[0])[::LOG**self.exp]
+        exp = int(np.floor(math.log(self.dataset.shape[0], LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+        x = range(self.dataset.shape[0])[::LOG**exp]
         shift = 0
         for ch in range(self.dataset.shape[1]): #ch - channel number
             self.checkBoxes.append(QtGui.QCheckBox("Channel "+str(ch)))
-            #y1 = self.maxDataDisplayed[:,ch]
-            #y2 = self.minDataDisplayed[:,ch]
             y1 = self.maxDataLevels[self.index][:,ch]
             y2 = self.minDataLevels[self.index][:,ch]
-            #print "plots of channel ",ch," initialised"
             self.plots.append([self.plWidget.plot(x=x,y=y1+shift),self.plWidget.plot(x=x,y=y2+shift),shift,ch])
             shift+=5000
-        print "Plots initialised."
-        print "---------intialisation debug end-----------"
 
         #check boxes for choosing channels
         for cb in self.checkBoxes:
@@ -172,7 +152,7 @@ class vizEEG(QtGui.QMainWindow):
         
         self.vb.setRange(xRange=x, yRange=(self.plots[0][2]-5000,self.plots[-1][2]+5000), padding=0)
         self.leftB = 0
-        self.rightB = self.dataset.shape[1]
+        self.rightB = self.dataset.shape[0]
         self.topB = self.plots[-1][2]
         self.bottomB = 0
 
@@ -182,6 +162,7 @@ class vizEEG(QtGui.QMainWindow):
         ckNoneBtn.clicked.connect(self.uncheckAllCBs)
         self.vb.sigRangeChanged.connect(self.updateData)
         self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
+        self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
 #        self.connect(self.worker,QtCore.SIGNAL("update(int)"), self.dataLoadProgress)
 
 #    def dataLoadProgress(self, n):
@@ -194,11 +175,12 @@ class vizEEG(QtGui.QMainWindow):
         print "worker.y1.shape: ", self.worker.y1.shape
         print "worker.x length: ", len(self.worker.x)
         print "---------thread finished debug end------"
-        for (p1,p2,sh,ch) in self.updatePlots:
-            p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
-            p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
-            i+=1
-        print "... data loaded successfully."
+        if not self.worker.stopping:
+            for (p1,p2,sh,ch) in self.updatePlots:
+                p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
+                p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
+                i+=1
+            print "... data loaded successfully."
 
     def checkAllCBs(self): #check how to join these two functions
         for cb in self.checkBoxes:
@@ -212,24 +194,24 @@ class vizEEG(QtGui.QMainWindow):
         if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
             return False
         else:
-            return self.vb.viewRange()[0][0] < self.leftB or self.vb.viewRange()[0][1] > self.rightB or self.vb.viewRange()[1][0] < self.bottomB or self.vb.viewRange()[1][1] > self.topB
-
-    def computeVPPDisplDeg(self):
-        return int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            print "left ", (self.vb.viewRange()[0][0] < self.leftB)
+            print "right ", (self.vb.viewRange()[0][1] > self.rightB)
+            print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
+            print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
+            print "top ", (self.vb.viewRange()[1][1] > self.topB)
+            return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
 
     def updateData(self):
-        currVPPDisplDeg = int(np.floor(math.log(self.vb.viewPixelSize()[0]/(LOG**self.exp),LOG)))
-        print "----------data update debug info----------"
-        print "VPPDisplDeg: ", self.computeVPPDisplDeg()
-        print "current index data shape: ", self.maxDataLevels[self.index].shape
-        print "currVPPDisplDeg: ", currVPPDisplDeg
-        print "exp: ", self.exp
-        print "pixel size: ", self.vb.viewPixelSize()[0]
-        print "index: ", self.index
-        print "----------data update debug info end------"
-        if((self.computeVPPDisplDeg()!=currVPPDisplDeg) or self.outOfBounds()):
 
-            visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])            
+        self.emit(QtCore.SIGNAL("cancelThread()"))
+        visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
+        print "visXRange: ", visXRange        
+        exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+        if((visXRange/(LOG**exp) < (0.1*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (10.0*VPP*self.vb.width())) or self.outOfBounds()):
+            print "visXRange/LOG**exp: ", visXRange/(LOG**exp)
+            print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
+            print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
+            print "outOfBounds: ", self.outOfBounds()
             XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
             if XLeftBound< 0:
                 XLeftBound = 0
@@ -245,20 +227,13 @@ class vizEEG(QtGui.QMainWindow):
             self.rightB = XRightBound
             self.topB = self.updatePlots[-1][2]
             self.bottomB = self.updatePlots[0][2]
-            #malo by by rovnake ako int(np.floor(log10(self.maxDataLevels[self.index].shape[0])))
-            self.index -= self.computeVPPDisplDeg()-currVPPDisplDeg
-            self.exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
-            #self.VPPDisplDeg += self.VPPDisplDeg-currVPPDisplDeg
-            if (self.index < 0):
-                self.index = 0
 
-            if (self.index > len(self.maxDataLevels)-1):
-                self.index = len(self.maxDataLevels)-1
-            print "----------new vals debug-----------"
-            print "new index: ", self.index
-            print "new exp: ", self.exp
-            print "----------new vals debug end-------"
-            self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.exp, self.index,self.h5File,self.h5Path)
+            for i in range(len(self.maxDataLevels)):
+                if(VPP*self.vb.width()<visXRange/LOG**i):
+                    self.index = i
+                    break
+
+            self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
 if __name__ == '__main__':
     import sys
