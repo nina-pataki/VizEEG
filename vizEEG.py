@@ -4,7 +4,7 @@ import h5py
 from pyqtgraph.Qt import QtGui, QtCore
 import math
 
-VPP = 10
+VPP = 1
 LOG = 10
 
 class loadingTask(QtCore.QThread):
@@ -46,7 +46,8 @@ class loadingTask(QtCore.QThread):
         exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(maxDataLevels[self.index].shape[0],LOG)))
         left = np.round(self.lb/(LOG**exp))
         right = np.round(self.rb/(LOG**exp))
-        self.x = range(self.dataset.shape[0])[self.lb:self.rb:LOG**exp]
+        #self.x = range(self.dataset.shape[0])[self.lb:self.rb:LOG**exp]
+        self.x = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
         print "lb: ", self.lb, "rb: ", self.rb
         print "left: ", left, "right: ", right
         print "ch1: ", self.ch1
@@ -237,11 +238,12 @@ class vizEEG(QtGui.QMainWindow):
             self.topB = self.updatePlots[-1][2]
             self.bottomB = self.updatePlots[0][2]
 
-            for i in range(len(self.maxDataLevels)):
-                if(VPP*self.vb.width()<visXRange/LOG**i):
-                    self.index = i
-                    break
-
+            #for i in range(len(self.maxDataLevels)):
+            #    if(VPP*self.vb.width()<visXRange/LOG**i):
+            #        self.index = i
+            #        break
+            self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
+ 
             self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
 if __name__ == '__main__':
