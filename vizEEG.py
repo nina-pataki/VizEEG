@@ -3,6 +3,7 @@ import pyqtgraph as pg
 import h5py
 from pyqtgraph.Qt import QtGui, QtCore
 import math
+import WindowClasses as winCl
 
 VPP = 1
 LOG = 10
@@ -82,6 +83,7 @@ class vizEEG(QtGui.QMainWindow):
         self.plots = []
         self.checkBoxes = []
         self.worker = loadingTask()
+        self.wins = []
 
         minmax = f['minmax']
         maxData = minmax['h_max']
@@ -122,7 +124,7 @@ class vizEEG(QtGui.QMainWindow):
         self.plItem = self.plWidget.getPlotItem()
         self.vb = self.plItem.getViewBox()
         self.lr = pg.LinearRegionItem(values=[int(np.round(self.dataset.shape[0]*0.1)), int(np.round(self.dataset.shape[0]*0.2))], bounds=[0,self.dataset.shape[0]], movable=True)
-        self.slider = pg.InfiniteLine(pos=20000, movable=True, pen='r')
+        self.slider = pg.InfiniteLine(pos=int(np.round(self.dataset.shape[0]*0.3)), movable=True, pen='r')
         self.plWidget.addItem(self.slider)
         self.plWidget.addItem(self.lr)
         self.plItem.setTitle(f.filename)
@@ -173,6 +175,8 @@ class vizEEG(QtGui.QMainWindow):
         self.vb.sigRangeChanged.connect(self.updateData)
         self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
         self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
+        openWindowBtn.clicked.connect(self.openNewPlotWin)
+        self.slider.sigDragged.connect(self.synSliders)
 #        self.connect(self.worker,QtCore.SIGNAL("update(int)"), self.dataLoadProgress)
 
 #    def dataLoadProgress(self, n):
@@ -238,13 +242,33 @@ class vizEEG(QtGui.QMainWindow):
             self.topB = self.updatePlots[-1][2]
             self.bottomB = self.updatePlots[0][2]
 
-            #for i in range(len(self.maxDataLevels)):
-            #    if(VPP*self.vb.width()<visXRange/LOG**i):
-            #        self.index = i
-            #        break
             self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
  
             self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
+
+    def synSliders(self):
+        for w in self.wins:
+            w.sliderUpdate(self.slider.value())
+
+    def openNewPlotWin(self): #premysliet funkcnost
+        exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+        lb = int(np.ceil(self.lr.getRegion()[0]))
+        rb = int(np.ceil(self.lr.getRegion()[1]))
+        left = np.round(lb/(LOG**exp))
+        right = np.round(rb/(LOG**exp))
+        xData = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
+        yData = []
+        chans = [] 
+        i = 0 #signaly by mali fungovat opacne, oprav to
+        for cb in self.checkBoxes:
+            if (cb.isChecked()):
+                yData.append([self.maxDataLevels[self.index][left:right,i], self.minDataLevels[self.index][left:right, i]])
+                chans.append(i)
+            i += 1
+        plWindow = winCl.PlotWindow([xData,yData,chans])
+        self.wins.append(plWindow)
+        plWindow.plotData()
+        
 
 if __name__ == '__main__':
     import sys
