@@ -73,17 +73,22 @@ class loadingTask(QtCore.QThread):
 
 class vizEEG(QtGui.QMainWindow):
 
-    def __init__(self, app, h5File, h5Path, matrixFile=None):
+    def __init__(self, app, h5File, h5Path, matrixFile=None, matrixPath=None, PSFile=None, PSPath=None):
         
         QtGui.QMainWindow.__init__(self)
-        self.h5File = h5File
+        self.resize(600, 800)
+        self.h5File = h5File #TODO preco su ako verejne premenne?
         self.h5Path = h5Path
         f = h5py.File(self.h5File,'r')
         self.dataset = f[self.h5Path]
+        g = h5py.File(PSFile, 'r')
+        self.powSpecData = g[PSPath]
         self.plots = []
         self.checkBoxes = []
         self.worker = loadingTask()
         self.wins = []
+        self.PSWins = []
+        self.matWins = []
 
         minmax = f['minmax']
         maxData = minmax['h_max']
@@ -116,9 +121,11 @@ class vizEEG(QtGui.QMainWindow):
         self.spinbox = pg.SpinBox(value=5000, int=True, step=100)
         col1.addWidget(self.spinbox)
         openWindowBtn = QtGui.QPushButton("Open region in a new window")
+        openPSWinBtn = QtGui.QPushButton("Open chosen channel with its power spectrum")
         openMatrixBtn = QtGui.QPushButton("Open correlation matrix for slider position")
         col1.addWidget(openWindowBtn)
         col1.addWidget(openMatrixBtn)
+        col1.addWidget(openPSWinBtn)
 
         #create widgets in the second row of the layout
         self.plItem = self.plWidget.getPlotItem()
@@ -169,6 +176,7 @@ class vizEEG(QtGui.QMainWindow):
         self.bottomB = 0
 
         print "... initial data loaded"
+
         #connect UI objects' signals to handling functions
         ckAllBtn.clicked.connect(self.checkAllCBs)
         ckNoneBtn.clicked.connect(self.uncheckAllCBs)
@@ -176,6 +184,7 @@ class vizEEG(QtGui.QMainWindow):
         self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
         self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
         openWindowBtn.clicked.connect(self.openNewPlotWin)
+        openPSWinBtn.clicked.connect(self.openPSWin)
         self.slider.sigDragged.connect(self.synSliders)
 #        self.connect(self.worker,QtCore.SIGNAL("update(int)"), self.dataLoadProgress)
 
@@ -226,6 +235,7 @@ class vizEEG(QtGui.QMainWindow):
             print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
             print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
             print "outOfBounds: ", self.outOfBounds()
+            #TODO otestovat nahratie regionov mimo visRange
             XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
             if XLeftBound< 0:
                 XLeftBound = 0
@@ -250,7 +260,7 @@ class vizEEG(QtGui.QMainWindow):
         for w in self.wins:
             w.sliderUpdate(self.slider.value())
 
-    def openNewPlotWin(self): #premysliet funkcnost
+    def openNewPlotWin(self):
         exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
         lb = int(np.ceil(self.lr.getRegion()[0]))
         rb = int(np.ceil(self.lr.getRegion()[1]))
@@ -259,7 +269,7 @@ class vizEEG(QtGui.QMainWindow):
         xData = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
         yData = []
         chans = [] 
-        i = 0 #signaly by mali fungovat opacne, oprav to
+        i = 0
         for cb in self.checkBoxes:
             if (cb.isChecked()):
                 yData.append([self.maxDataLevels[self.index][left:right,i], self.minDataLevels[self.index][left:right, i]])
@@ -267,12 +277,37 @@ class vizEEG(QtGui.QMainWindow):
             i += 1
         plWindow = winCl.PlotWindow([xData,yData,chans])
         self.wins.append(plWindow)
-        plWindow.plotData()
+        plWindow.showData()
+    
+    def openPSWin(self):
+        numOfChans = 0
+        i = 0
+        for cb in self.checkBoxes:
+            if (cb.isChecked()):
+                numOfChans += 1
+                chanNum = i
+            i += 1
+
+        if numOfChans != 1:
+            print "Please, choose exactly one channel per window."
+        else:
+            exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            xData = range(self.dataset.shape[0])[::LOG**exp]
+            yData = [[self.maxDataLevels[self.index][:,chanNum],self.minDataLevels[self.index][:,chanNum]]]
+            chans = [chanNum]
+            window = winCl.PlotWindow([xData,yData,chans], self.powSpecData)
+            self.PSWins.append(window)
+            window.showData()
+            window.showPowSpec() 
         
 
 if __name__ == '__main__':
     import sys
     app = QtGui.QApplication(sys.argv)
-    mainwin = vizEEG(app,sys.argv[1],sys.argv[2])
+    if (len(sys.argv)>3):
+        mainwin = vizEEG(app, sys.argv[1],sys.argv[2],PSFile=sys.argv[3],PSPath=sys.argv[4])
+    else:
+        mainwin = vizEEG(app,sys.argv[1],sys.argv[2])
+
     mainwin.show()
     sys.exit(app.exec_())
