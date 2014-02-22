@@ -29,10 +29,9 @@ class loadingTask(QtCore.QThread):
 
         self.lock.lock()
         self.stopping = False
-
         f = h5py.File(self.fileName, 'r')
         self.dataset = f[self.filePath]
-
+        #TODO handle if minmax not present
         minmax = f['minmax']
         maxData = minmax['h_max']
         maxDataLevels = [self.dataset]
@@ -69,7 +68,7 @@ class loadingTask(QtCore.QThread):
         self.stopping = True
         print "cancelling thread"     
 
-#TODO: axis labels, scrolling of checkbox area
+#TODO: axis labels
 
 class vizEEG(QtGui.QMainWindow):
 
@@ -77,19 +76,31 @@ class vizEEG(QtGui.QMainWindow):
         
         QtGui.QMainWindow.__init__(self)
         self.resize(600, 800)
-        self.h5File = h5File #TODO preco su ako verejne premenne?
+        self.h5File = h5File
         self.h5Path = h5Path
         f = h5py.File(self.h5File,'r')
+        
         self.dataset = f[self.h5Path]
-        g = h5py.File(PSFile, 'r')
-        self.powSpecData = g[PSPath]
+        if PSFile is not None:
+            g = h5py.File(PSFile, 'r')
+            self.powSpecData = g[PSPath]
+        else:
+            self.powSpecData = None
+
+        if matrixFile is not None:
+            h = h5py.File(matrixFile, 'r')
+            self.matrixData = h[matrixPath]
+        else:
+            self.matrixData = None
+
         self.plots = []
         self.checkBoxes = []
         self.worker = loadingTask()
         self.wins = []
         self.PSWins = []
         self.matWins = []
-
+        #TODO handle if minmax is not present
+        #'minmax' in f #vracia True alebo False, rovnako urob aj raw data
         minmax = f['minmax']
         maxData = minmax['h_max']
         self.maxDataLevels = [self.dataset]
@@ -109,25 +120,31 @@ class vizEEG(QtGui.QMainWindow):
         col2 = QtGui.QVBoxLayout()
         ckWidget = QtGui.QWidget()
         ckLayout = QtGui.QVBoxLayout()
+        #TODO correct scroll area display
         scrArea = QtGui.QScrollArea()
         col2.addWidget(scrArea)
         layout.addLayout(col1)
         layout.addLayout(col2)
         cw.setLayout(layout)
 
-        #create widgets in the first row of the layout
         self.plWidget = pg.PlotWidget() #plotWidget segfaults for some reason
         col1.addWidget(self.plWidget)
         self.spinbox = pg.SpinBox(value=5000, int=True, step=100)
         col1.addWidget(self.spinbox)
-        openWindowBtn = QtGui.QPushButton("Open region in a new window")
-        openPSWinBtn = QtGui.QPushButton("Open chosen channel with its power spectrum")
-        openMatrixBtn = QtGui.QPushButton("Open correlation matrix for slider position")
-        col1.addWidget(openWindowBtn)
-        col1.addWidget(openMatrixBtn)
-        col1.addWidget(openPSWinBtn)
+        menuBtn = QtGui.QPushButton("Open new window options")
+        menu = QtGui.QMenu()
+        menuBtn.setMenu(menu)
+        newWinAct = menu.addAction("Open selection in a new window.")
+        PSWinAct = menu.addAction("Open selected channel with a power spectrum.")
+        matrixWinAct = menu.addAction("Open correlation matrix.")
+#        openWindowBtn = QtGui.QPushButton("Open region in a new window")
+#        openPSWinBtn = QtGui.QPushButton("Open chosen channel with its power spectrum")
+#        openMatrixBtn = QtGui.QPushButton("Open correlation matrix for slider position")
+        col1.addWidget(menuBtn)
+#        col1.addWidget(openWindowBtn)
+#        col1.addWidget(openMatrixBtn)
+#        col1.addWidget(openPSWinBtn)
 
-        #create widgets in the second row of the layout
         self.plItem = self.plWidget.getPlotItem()
         self.vb = self.plItem.getViewBox()
         self.lr = pg.LinearRegionItem(values=[int(np.round(self.dataset.shape[0]*0.1)), int(np.round(self.dataset.shape[0]*0.2))], bounds=[0,self.dataset.shape[0]], movable=True)
@@ -137,7 +154,7 @@ class vizEEG(QtGui.QMainWindow):
         self.plItem.setTitle(f.filename)
 
         print "... loading initial data, please wait..." 
-
+        #TODO handle if minmax is not present
         #initialise plots of hdf5 data
         VPPDeg = int(np.ceil(math.log(VPP*self.vb.width(),LOG)))
         i = 0
@@ -183,9 +200,13 @@ class vizEEG(QtGui.QMainWindow):
         self.vb.sigRangeChanged.connect(self.updateData)
         self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
         self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
-        openWindowBtn.clicked.connect(self.openNewPlotWin)
-        openPSWinBtn.clicked.connect(self.openPSWin)
-        self.slider.sigDragged.connect(self.synSliders)
+        newWinAct.triggered.connect(self.openNewPlotWin)
+        PSWinAct.triggered.connect(self.openPSWin)
+        matrixWinAct.triggered.connect(self.openMatrixWin)
+        self.spinbox.sigValueChanged.connect(self.shiftChange)
+#        openWindowBtn.clicked.connect(self.openNewPlotWin)
+#        openPSWinBtn.clicked.connect(self.openPSWin)
+        self.slider.sigDragged.connect(self.slidersMngFunc)
 #        self.connect(self.worker,QtCore.SIGNAL("update(int)"), self.dataLoadProgress)
 
 #    def dataLoadProgress(self, n):
@@ -224,8 +245,9 @@ class vizEEG(QtGui.QMainWindow):
             print "top ", (self.vb.viewRange()[1][1] > self.topB)
             return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
 
+    #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
+    #TODO handle if minmax is not present
     def updateData(self):
-
         self.emit(QtCore.SIGNAL("cancelThread()"))
         visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
         print "visXRange: ", visXRange        
@@ -235,7 +257,6 @@ class vizEEG(QtGui.QMainWindow):
             print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
             print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
             print "outOfBounds: ", self.outOfBounds()
-            #TODO otestovat nahratie regionov mimo visRange
             XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
             if XLeftBound< 0:
                 XLeftBound = 0
@@ -256,10 +277,19 @@ class vizEEG(QtGui.QMainWindow):
  
             self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
-    def synSliders(self):
+    def slidersMngFunc(self):
         for w in self.wins:
-            w.sliderUpdate(self.slider.value())
+            w.plotSliderUpdate(self.slider.value())
 
+        for w in self.PSWins:
+            w.plotSliderUpdate(self.slider.value())
+            w.imgSliderUpdate(self.slider.value())
+
+        for w in self.matWins:
+            w.showData(self.slider.value())
+
+    #TODO handle if PS and matrix files are not present
+    #TODO find dialog window in pyQt doc to let the users know abouts errors
     def openNewPlotWin(self):
         exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
         lb = int(np.ceil(self.lr.getRegion()[0]))
@@ -299,7 +329,30 @@ class vizEEG(QtGui.QMainWindow):
             self.PSWins.append(window)
             window.showData()
             window.showPowSpec() 
-        
+    
+    #TODO test if matrices work correctly    
+    def openMatrixWin(self):
+        matWindow = winCl.CorrMatrixWindow(self.matrixData, 10)
+        matWindow.showData(self.slider.value())
+
+    #TODO change according to presence of minmax
+    #TODO test if works correctly
+    def shiftChange(self, sb): #sb is spinbox
+        changedShift = 0
+        val = sb.value()
+        change = val - self.plots[1][2]
+        originalShift = self.plots[1][2]
+        for p in plots:
+            x1 = p[0].getData()[0]
+            x2 = p[1].getData()[0]
+            y1 = p[0].getData()[1]
+            y2 = p[1].getData()[1]
+            changeInShift = change*p[3]
+            print "shift is changed by ", changeInShift, " for channel ",p[3]
+            p[0].setData(x=x1,y=y1+changeInShift)
+            p[1].setData(x=x2,y=y2+changeInShift)
+            p[2] = originalShift+changeInShift
+            print "new shift is ", p[2]
 
 if __name__ == '__main__':
     import sys

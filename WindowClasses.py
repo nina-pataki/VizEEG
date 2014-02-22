@@ -3,7 +3,7 @@ import numpy as np
 from pyqtgraph.Qt import QtGui
 
 class PlotWindow(QtGui.QMainWindow):
-
+    #TODO test if setAttribute(55) works
     def __init__(self, data, PSData=None): #data = [xData,yData,chans] where xData = range(lb,rb), yData = [maxdata, mindata], chans = [ch#]
         QtGui.QMainWindow.__init__(self)
         self.resize(600, 800)
@@ -19,8 +19,8 @@ class PlotWindow(QtGui.QMainWindow):
         self.col1.addWidget(self.plot)
         self.data = data
         self.setAttribute(55) #sets the window to delete on closing
-        self.slider = pg.InfiniteLine(pos=0, bounds=[self.data[0][0],self.data[0][-1]], movable=True, pen='y')
-        self.plot.addItem(self.slider)
+        self.plotSlider = pg.InfiniteLine(pos=0, bounds=[self.data[0][0],self.data[0][-1]], movable=True, pen='y')
+        self.plot.addItem(self.plotSlider)
         self.PSData = PSData
         self.plots = []
         self.checkBoxes = []
@@ -36,16 +36,23 @@ class PlotWindow(QtGui.QMainWindow):
 
         for l in self.labels:
             self.col2.addWidget(l) 
-    
+    #TODO change the colour scheme of power spectra 
     def showPowSpec(self):
         self.img = pg.ImageView()
         self.col1.addWidget(self.img)
+        self.imgSlider = pg.InfiniteLine(pos=0, bounds=[self.data[0][0],self.data[0][-1]], movable=True, pen='y')
+        self.img.addItem(self.imgSlider)
+        self.plotSlider.sigDragged.connect(self.imgSliderUpdate)
+        self.imgSlider.sigDragged.connect(self.plotSliderUpdate)
         #makeRGBA outputs a tuple (imgArray,isThereAlphaChannel?)
         PSRGBAImg = pg.makeRGBA(self.PSData[:,:,self.data[2][0]], levels=[np.amin(self.PSData[:,:,self.data[2][0]]), np.amax(self.PSData[:,:,self.data[2][0]])])[0]
         self.img.setImage(PSRGBAImg)
 
-    def sliderUpdate(self, val):
-        self.slider.setPos(val)
+    def plotSliderUpdate(self, val):
+        self.plotSlider.setPos(val)
+
+    def imgSliderUpdate(self, val):
+        self.imgSlider.setPos(val)
 
 #class PowSpecWindow(QtGui.QMainWindow):
 #
@@ -76,15 +83,27 @@ class PlotWindow(QtGui.QMainWindow):
 
 class CorrMatrixWindow(QtGui.QMainWindow):
 
-    def __init__(self, matData):
+    def __init__(self, matData, compWinSize, compWinStep):
         QtGui.QMainWindow.__init__(self)
         self.resize(600, 800)
         self.img = pg.ImageView()
         self.setCentralWidget(img)
         self.show()
+        self.cWsize = compWinSize
+        self.cWStep = compWinStep
 
-    def showData(self):
-        pass
+    def showData(self, slPos):
+        temp = slPos - (cWsize/2)
+        if temp < 0:
+            pos = 0
+        else:
+            if (temp%cWStep <= (cWStep/2)):
+                pos = temp / cWStep
+            else:
+                pos = (temp / cWStep) + 1
 
-    def updateData(self):
-        pass
+        matRBG = pg.makeRGBA(matData[:,:,pos])[0]
+        self.img.setImage(matRGB)
+
+#    def updateData(self):
+#        pass
