@@ -7,6 +7,7 @@ class PlotWindow(QtGui.QMainWindow):
     def __init__(self, data, PSData=None): #data = [xData,yData,chans] where xData = range(lb,rb), yData = [maxdata, mindata], chans = [ch#]
         QtGui.QMainWindow.__init__(self)
         self.resize(600, 800)
+        self.setWindowTitle("vizEEG")
         cw = QtGui.QWidget()
         self.plot = pg.PlotWidget()
         self.setCentralWidget(cw)
@@ -30,7 +31,10 @@ class PlotWindow(QtGui.QMainWindow):
     def showData(self):
         shift = 0
         for i in range(len(self.data[1])):
-            self.plots.append([self.plot.plot(x=self.data[0],y=self.data[1][i][0]+shift), self.plot.plot(x=self.data[0],y=self.data[1][i][1]+shift)])
+            if self.data[1][i][1] is not None:
+                self.plots.append([self.plot.plot(x=self.data[0],y=self.data[1][i][0]+shift), self.plot.plot(x=self.data[0],y=self.data[1][i][1]+shift)])
+            else:
+                self.plots.append([self.plot.plot(x=self.data[0],y=self.data[1][i][0]+shift)])
             self.labels.append(QtGui.QLabel("Channel "+str(self.data[2][i])))
             shift += 5000
 
@@ -38,12 +42,13 @@ class PlotWindow(QtGui.QMainWindow):
             self.col2.addWidget(l) 
     #TODO change the colour scheme of power spectra 
     def showPowSpec(self):
+        self.setWindowTitle("vizEEG - Power Spectra display")
         self.img = pg.ImageView()
         self.col1.addWidget(self.img)
-        self.imgSlider = pg.InfiniteLine(pos=0, bounds=[self.data[0][0],self.data[0][-1]], movable=True, pen='y')
+        self.imgSlider = pg.InfiniteLine(pos=0, bounds=[0,self.PSData.shape[0]], movable=True, pen='y')
         self.img.addItem(self.imgSlider)
-        self.plotSlider.sigDragged.connect(self.imgSliderUpdate)
-        self.imgSlider.sigDragged.connect(self.plotSliderUpdate)
+        self.plotSlider.sigDragged.connect(self.imgSliderFunc)
+        self.imgSlider.sigDragged.connect(self.plotSliderFunc)
         #makeRGBA outputs a tuple (imgArray,isThereAlphaChannel?)
         PSRGBAImg = pg.makeRGBA(self.PSData[:,:,self.data[2][0]], levels=[np.amin(self.PSData[:,:,self.data[2][0]]), np.amax(self.PSData[:,:,self.data[2][0]])])[0]
         self.img.setImage(PSRGBAImg)
@@ -52,58 +57,39 @@ class PlotWindow(QtGui.QMainWindow):
         self.plotSlider.setPos(val)
 
     def imgSliderUpdate(self, val):
-        self.imgSlider.setPos(val)
+        ratio = len(self.data[0])/float(self.PSData.shape[0])
+        self.imgSlider.setPos(np.ceil(val/ratio))
 
-#class PowSpecWindow(QtGui.QMainWindow):
-#
-#    def __init__(self, plData, psData):
-#        QtGui.QMainWindow.__init__(self)
-#        self.resize(600, 800)
-#        cw = QtGui.QWidget()
-#        self.plot = pg.PlotWidget()
-#        img = pg.ImageView()
-#        self.setCentralWidget(cw)
-#        self.layout = QtGui.QVBoxLayout()
-#        cw.setLayout(self.layout)
-#        self.layout.addWidget(self.plot)
-#        self.layout.addWidget(self.img)
-#        self.plData = plData
-#        self.psData = psData
-#        self.plots = []
-#        self.show()
-#
-#    def showData(self):
-#        #load plots to the plot widget
-#        shift = 0
-#        for i in range(len(self.plData[1])):
-#            self.plots.append([self.plot.plot(x=self.plData[0],y=self.plData[1][i][0]+shift), self.plot.plot(x=self.plData[0],y=self.plData[1][i][1]+shift)])
-#            shift += 5000
+    def imgSliderFunc(self):
+        self.imgSliderUpdate(self.plotSlider.value())
 
-        #load power spectra to the image view object
+    def plotSliderFunc(self):
+        ratio = int(len(self.data[0])/self.PSData.shape[0])
+        self.plotSliderUpdate(self.imgSlider.value()*ratio)
 
 class CorrMatrixWindow(QtGui.QMainWindow):
 
     def __init__(self, matData, compWinSize, compWinStep):
         QtGui.QMainWindow.__init__(self)
+        self.setWindowTitle("vizEEG - Correlation Matrix display")
         self.resize(600, 800)
         self.img = pg.ImageView()
-        self.setCentralWidget(img)
+        self.setCentralWidget(self.img)
         self.show()
-        self.cWsize = compWinSize
+        self.cWSize = compWinSize
         self.cWStep = compWinStep
+        self.matData = matData
 
     def showData(self, slPos):
-        temp = slPos - (cWsize/2)
+        temp = slPos - (self.cWSize/2)
         if temp < 0:
             pos = 0
         else:
-            if (temp%cWStep <= (cWStep/2)):
-                pos = temp / cWStep
+            if (temp%self.cWStep <= (self.cWStep/2)):
+                pos = temp / self.cWStep
             else:
-                pos = (temp / cWStep) + 1
-
-        matRBG = pg.makeRGBA(matData[:,:,pos])[0]
+                pos = (temp / self.cWStep) + 1
+        print "position is: ", pos
+        matRGB = pg.makeRGBA(self.matData[:,:,pos], levels=[np.amin(self.matData[:,:,pos]), np.amax(self.matData[:,:,pos])])[0]
         self.img.setImage(matRGB)
 
-#    def updateData(self):
-#        pass
