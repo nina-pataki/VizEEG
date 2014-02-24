@@ -1,277 +1,396 @@
 import numpy as np
-#import pdb
 import pyqtgraph as pg
 import h5py
 from pyqtgraph.Qt import QtGui, QtCore
 import math
+import WindowClasses as winCl
+import minmax
 
-class OpenedWindow():
+VPP = 1
+LOG = 10
 
-    def __init__(self, data): 
+class loadingTask(QtCore.QThread):
+    def __init__(self, parent=None):
+        QtCore.QThread.__init__(self,parent)
+        self.lock = QtCore.QMutex()
 
-        #create the window
-        self.win = QtGui.QMainWindow()
-        self.cw = QtGui.QWidget()
-        self.win.setCentralWidget(self.cw)
-        self.data = data
-    
-    def plotData(self): #data are selected plots in the main window
+    def loadData(self,ch1,ch2, lb, rb, index, fileName, filePath):
+        print "... loading data..."
+        self.fileName = fileName
+        self.filePath = filePath
+        self.lb = lb
+        self.rb = rb
+        self.index = index
+        self.running = True
+        self.ch1 = ch1
+        self.ch2 = ch2
+        self.start()
 
-        #create a layout
-        self.win.setAttribute(55) #sets the window to delete on closing
-        self.layout = QtGui.QVBoxLayout()
-        self.row1 = QtGui.QHBoxLayout()
-        self.row2 = QtGui.QHBoxLayout()
-        self.layout.addLayout(self.row1)
-        self.layout.addLayout(self.row2)
-        self.cw.setLayout(self.layout)
-        self.win.show()
+    def run(self):
 
-        #fill the layout with widgets
-        self.plWidget = pg.PlotWidget()
+        self.lock.lock()
+        self.stopping = False
+        f = h5py.File(self.fileName, 'r')
+        self.dataset = f[self.filePath]
+        minmax = f['minmax']
+        maxData = minmax['h_max']
+        maxDataLevels = [self.dataset]
+        for l in maxData.keys():
+            maxDataLevels.append(maxData[l])
+
+        minData = minmax['h_min']
+        minDataLevels = [self.dataset]
+        for l in minData.keys():
+            minDataLevels.append(minData[l])
+        
+        exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(maxDataLevels[self.index].shape[0],LOG)))
+        left = np.round(self.lb/(LOG**exp))
+        right = np.round(self.rb/(LOG**exp))
+        self.x = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
+        print "lb: ", self.lb, "rb: ", self.rb
+        print "left: ", left, "right: ", right
+        print "ch1: ", self.ch1
+        print "ch2: ", self.ch2
+        self.y1 = np.zeros((right-left,(self.ch2-self.ch1)+1))
+        self.y2 = np.zeros((right-left,(self.ch2-self.ch1)+1)) 
+        j = 0
+        for i in range(self.ch1,self.ch2+1):
+            if (self.stopping):
+                break        
+            else:
+                self.y1[:,j] = maxDataLevels[self.index][left:right,i]
+                self.y2[:,j] = minDataLevels[self.index][left:right,i]
+                j += 1
+                
+        self.lock.unlock()
+    def stopTask(self):
+        self.stopping = True
+        print "cancelling thread"     
+
+#TODO: axis labels
+
+class vizEEG(QtGui.QMainWindow):
+
+    def __init__(self, app, h5File, h5Path, matrixFile=None, matrixPath=None, PSFile=None, PSPath=None):
+        
+        QtGui.QMainWindow.__init__(self)
+        self.setWindowTitle("vizEEG")
+        self.resize(600, 800)
+        self.h5File = h5File
+        self.h5Path = h5Path
+        f = h5py.File(self.h5File,'r')
+        
+        self.dataset = f[self.h5Path]
+        if PSFile is not None:
+            g = h5py.File(PSFile, 'r')
+            self.powSpecData = g[PSPath]
+        else:
+            self.powSpecData = None
+
+        if matrixFile is not None:
+            h = h5py.File(matrixFile, 'r')
+            self.matrixData = h[matrixPath]
+        else:
+            self.matrixData = None
+
+        self.plots = []
+        self.checkBoxes = []
+        self.worker = loadingTask()
+        self.wins = []
+        self.PSWins = []
+        self.matWins = []
+        dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No)
+        self.minmaxBool = 'minmax' in f
+        if not self.minmaxBool:
+            dialog.setText("MinMax values not present!")
+            dialog.setInformativeText("Would you like to create leveled data sets and save them to your file?")
+            dialog.setDefaultButton(QtGui.QMessageBox.Ok)
+            retVal = dialog.exec_()
+
+            if (retVal == QtGui.QMessageBox.Yes):
+                minmax.createMinMax(h5File, h5Path)
+                self.minmaxBool = True
+
+        if self.minmaxBool:
+            minmax = f['minmax']
+            maxData = minmax['h_max']
+            self.maxDataLevels = [self.dataset]
+            for l in maxData.keys():
+                self.maxDataLevels.append(maxData[l])
+
+            minData = minmax['h_min']
+            self.minDataLevels = [self.dataset]
+            for l in minData.keys():
+                self.minDataLevels.append(minData[l])
+
+        #create the layout and main widget
+        cw = QtGui.QWidget()
+        self.setCentralWidget(cw)
+        layout = QtGui.QHBoxLayout()
+        col1 = QtGui.QVBoxLayout()
+        col2 = QtGui.QVBoxLayout()
+        ckWidget = QtGui.QWidget()
+        ckLayout = QtGui.QVBoxLayout()
+        scrArea = QtGui.QScrollArea()
+        col2.addWidget(scrArea)
+        layout.addLayout(col1)
+        layout.addLayout(col2)
+        cw.setLayout(layout)
+
+        self.plWidget = pg.PlotWidget() #plotWidget segfaults for some reason
+        col1.addWidget(self.plWidget)
+        self.spinbox = pg.SpinBox(value=5000, int=True, step=100)
+        col1.addWidget(self.spinbox)
+        menuBtn = QtGui.QPushButton("Open new window options")
+        menu = QtGui.QMenu()
+        menuBtn.setMenu(menu)
+        newWinAct = menu.addAction("Open selection in a new window.")
+        PSWinAct = menu.addAction("Open selected channel with a power spectrum.")
+        matrixWinAct = menu.addAction("Open correlation matrix.")
+        col1.addWidget(menuBtn)
+
         self.plItem = self.plWidget.getPlotItem()
         self.vb = self.plItem.getViewBox()
-        #plot the data
-        rate = int(np.round(len(self.data[0])/(vb.width()*200)))
-        self.plots = []
-        shift = 0        
-        x = self.data[0][::rate]
-        ch = 0
-        print "only data array of data[1] ", self.data[1][0][0]
-        for ch in range(len(self.data[1])): #data = [xData,yData] where xData = range(lb,rb) and yData = [[dataset[ch#,lb:rb], ch#]]
-            self.plots.append([self.plWidget.plot(x=x,y=self.data[1][ch][0][::rate]+shift),shift,ch])
-            shift += 5000
-        self.vb.setRange(xRange=self.data[0],yRange=[-10000,shift+10000],padding=0)
-        self.sl = pg.InfiniteLine(bounds=[0,self.data[0][-1]],pos=int(np.round(self.data[0][-1]*0.1)))
-        self.plWidget.addItem(self.sl)
-        self.row1.addWidget(self.plWidget)
+        self.lr = pg.LinearRegionItem(values=[int(np.round(self.dataset.shape[0]*0.1)), int(np.round(self.dataset.shape[0]*0.2))], bounds=[0,self.dataset.shape[0]], movable=True)
+        self.slider = pg.InfiniteLine(pos=int(np.round(self.dataset.shape[0]*0.3)), movable=True, pen='r')
+        self.plWidget.addItem(self.slider)
+        self.plWidget.addItem(self.lr)
+        self.plItem.setTitle(f.filename)
 
-    def showMatrix(self): #data is the correlation matrix
+        print "... loading initial data, please wait..." 
+        #initialise plots of hdf5 data
+        if self.minmaxBool:
+            VPPDeg = int(np.ceil(math.log(VPP*self.vb.width(),LOG)))
+            i = 0
+            for i in range(len(self.maxDataLevels)): 
+                dataDeg = math.log(self.maxDataLevels[i].shape[0],LOG)
+                if (int(np.ceil(dataDeg)) == VPPDeg): 
+                    self.index = i
 
-        self.layout = QtGui.QVBoxLayout()
-        self.cw.setLayout(self.layout)
-        self.win.show()
+            exp = int(np.floor(math.log(self.dataset.shape[0], LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            x = range(self.dataset.shape[0])[::LOG**exp]
+            shift = 0
 
-        self.matrixImg = pg.ImageView()
-        self.layout.addWidget(self.matrixImg)
-
-        self.matrixImg.setImage(self.data[:,:,slider.value()])
-
-    def updateMatrix(self):
-        
-        self.matrixImg.setImage(self.data[:,:,slider.value()])
-
-    def showSpectrum(self): #data is what?
-        pass
-        
-
-#TODO: axes labels, test the memory usage and write help
-
-def vizEEG(h5File,h5Path,mf=None):
-    global matrixFile, matrixWin, wins, app, win, vb, plItem, gLeft, gRight, gTop, gBottom, dataset, visPlot, lastVisRange, plots, rateOfDec, lr, checkBoxes, slider
-
-    #create the main window
-    app = QtGui.QApplication([])
-    win = QtGui.QMainWindow()
-    cw = QtGui.QWidget()
-    win.setCentralWidget(cw)
-    wins = []
-    matrixFile = mf
-
-    #create a layout
-    layout = QtGui.QHBoxLayout()
-    col1 = QtGui.QVBoxLayout()
-    col2 = QtGui.QVBoxLayout()
-    layout.addLayout(col1)
-    layout.addLayout(col2)
-    cw.setLayout(layout)
-    win.show()    
-
-    #create widgets in the first row of the layout
-    plWidget = pg.PlotWidget()
-    plItem = plWidget.getPlotItem() 
-
-    vb = plItem.getViewBox()
-    col1.addWidget(plWidget)
-    spinbox = pg.SpinBox(value=5000, int=True, step=100)
-    col1.addWidget(spinbox)
-    openWindowBtn = QtGui.QPushButton("Open region in a new window")
-    openMatrixBtn = QtGui.QPushButton("Open correlation matrix for slider position")
-    col1.addWidget(openWindowBtn)
-    col1.addWidget(openMatrixBtn)
-    #pdb.set_trace()
-    #data initialization and creation of the second row of the layout
-    f = h5py.File(h5File,'r')
-    dataset = f[h5Path]
-    shift = 0 
-    plots = []
-    checkBoxes = []   
-    matrixWin = None 
-    
-    lr = pg.LinearRegionItem(values=[int(np.round(dataset.shape[1]*0.1)), int(np.round(dataset.shape[1]*0.2))], bounds=[0,dataset.shape[1]], movable=True)
-    slider = pg.InfiniteLine(bounds=[0,dataset.shape[1]],pos=int(np.round(dataset.shape[1]*0.3)), movable=True)
-    plWidget.addItem(slider)
-    plWidget.addItem(lr)
-    plItem.setTitle(f.filename) 
-
-    print "... loading initial data, please wait..."
-
-    #create plots of hdf5 data
-    rateOfDec = int(np.round(dataset.shape[1]/(vb.width()*200)))
-    x = range(dataset.shape[1])[::rateOfDec]
-    i = 0
-
-    for ch in range(dataset.shape[0]): #ch - channel number
-        checkBoxes.append(QtGui.QCheckBox("Channel "+str(i)))
-        y = dataset[ch][::rateOfDec]
-        plots.append([plWidget.plot(x=x,y=y+shift),shift,ch])
-        shift+=5000
-        i+=1
-
-    for cb in checkBoxes:
-        col2.addWidget(cb)
-
-    ckAllBtn = QtGui.QPushButton("Check all channels")
-    ckNoneBtn = QtGui.QPushButton("Uncheck all channels")
-    col2.addWidget(ckAllBtn)
-    col2.addWidget(ckNoneBtn)
-
-    visPlot = 1
-
-    print "... initial data loaded"
-
-    #pdb.set_trace()
-    vb.setRange(xRange=x, yRange=(plots[0][1]-5000,plots[-1][1]+5000), padding=0)
-    gLeft = 0
-    gRight = dataset.shape[1]
-    gTop = plots[-1][1]
-    gBottom = 0
-    lastVisRange = dataset.shape[1]
-#    print vb.viewPixelSize()[0]/rateOfDec
-
-    #function that indicates if data update is needed when dragging
-    def outOfBounds(left, right, top, bottom):
-        if (vb.viewRange()[0][0] < 0 or vb.viewRange()[0][1] > dataset.shape[1] or vb.viewRange()[1][0] < -5000 or vb.viewRange()[1][1] > plots[-1][1]+5000):
-            return False
+            for ch in range(self.dataset.shape[1]): #ch - channel number
+                self.checkBoxes.append(QtGui.QCheckBox("Channel "+str(ch)))
+                y1 = self.maxDataLevels[self.index][:,ch]
+                y2 = self.minDataLevels[self.index][:,ch]
+                self.plots.append([self.plWidget.plot(x=x,y=y1+shift),self.plWidget.plot(x=x,y=y2+shift),shift,ch])
+                shift+=5000
         else:
-            return vb.viewRange()[0][0] < left or vb.viewRange()[0][1] > right or vb.viewRange()[1][0] < bottom or vb.viewRange()[1][1] > top
+            x = range(self.dataset.shape[0])
+            shift = 0
+            for ch in range(self.dataset.shape[1]):
+                self.checkBoxes.append(QtGui.QCheckBox("Channel "+str(ch)))
+                y = self.dataset[:,ch]
+                self.plots.append([self.plWidget.plot(x=x, y=y+shift), shift, ch])
+                shift+=5000
 
-    #function for updating data plots when zooming in/out or dragging the scene
-    def dataUpdate(): #TODO zooming out, think it through
-        global vb, plItem, dataset,visPlot, gLeft, gRight, gTop, gBottom, lastVisRange, rateOfDec
+        #check boxes for choosing channels
+        for cb in self.checkBoxes:
+            ckLayout.addWidget(cb)
+            cb.setContentsMargins(-1,0,-1,0)
 
-        visXRange = int(vb.viewRange()[0][1] - vb.viewRange()[0][0])
-        valsOnPixel = vb.viewPixelSize()[0]/rateOfDec
+        ckAllBtn = QtGui.QPushButton("Check all channels")
+        ckNoneBtn = QtGui.QPushButton("Uncheck all channels")
+        col2.addWidget(ckAllBtn)
+        col2.addWidget(ckNoneBtn)
+        ckWidget.setLayout(ckLayout)
+        scrArea.setWidget(ckWidget)
+        
+        
+        self.vb.setRange(xRange=x, yRange=(self.plots[0][2]-5000,self.plots[-1][2]+5000), padding=0)
+        self.leftB = 0
+        self.rightB = self.dataset.shape[0]
+        self.topB = self.plots[-1][2]
+        self.bottomB = 0
 
-        if ((valsOnPixel<=50 and rateOfDec > 1) or outOfBounds(gLeft,gRight,gTop,gBottom) or valsOnPixel>500):
+        print "... initial data loaded"
 
-            print "... loading data, please wait..."
-            vb.setMouseEnabled(False,False)
-            rateOfDec = int(np.round(vb.viewPixelSize()[0]/200))
+        #connect UI objects' signals to handling functions
+        ckAllBtn.clicked.connect(self.checkAllCBs)
+        ckNoneBtn.clicked.connect(self.uncheckAllCBs)
+        self.vb.sigRangeChanged.connect(self.updateData)
+        self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
+        self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
+        newWinAct.triggered.connect(self.openNewPlotWin)
+        PSWinAct.triggered.connect(self.openPSWin)
+        matrixWinAct.triggered.connect(self.openMatrixWin)
+        self.spinbox.sigValueChanged.connect(self.shiftChange)
+        self.slider.sigDragged.connect(self.slidersMngFunc)
 
-            if rateOfDec < 1:
-                rateOfDec = 1
+    def dataLoaded(self):
+        i=0
+        print "---------thread finished debug----------"
+        print "v dataLoaded len(updatePlots): ", len(self.updatePlots)
+        print "worker.y1.shape: ", self.worker.y1.shape
+        print "worker.x length: ", len(self.worker.x)
+        print "---------thread finished debug end------"
+        if not self.worker.stopping:
+            for (p1,p2,sh,ch) in self.updatePlots:
+                p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
+                p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
+                i+=1
+            print "... data loaded successfully."
 
-            XLeftBound = int(np.floor(vb.viewRange()[0][0]-visXRange/4))
-            if XLeftBound< 0:
-                XLeftBound = 0
-
-            XRightBound = int(np.floor(vb.viewRange()[0][1] + visXRange/4))
-            if XRightBound > dataset.shape[1]:
-                XRightBound = dataset.shape[1]
-
-            visYRange = int(vb.viewRange()[1][1] - vb.viewRange()[1][0])
-
-            visRange = vb.viewRange()
-
-            updatePlots = [(p,xAxPos,ch) for (p,xAxPos,ch) in plots if xAxPos>=vb.viewRange()[1][0]-visYRange/4 and xAxPos<=vb.viewRange()[1][1]+visYRange/4]
-
-            x = range(dataset.shape[1])[XLeftBound:XRightBound:rateOfDec]
-
-            for (p,sh,ch) in updatePlots:
-                p.setData(x=x,y=dataset[ch][XLeftBound:XRightBound:rateOfDec]+sh)
-
-            visPlot = updatePlots[0][2]
-            gLeft = XLeftBound
-            gRight = XRightBound
-            gTop = updatePlots[-1][1]
-            gBottom = updatePlots[0][1]
-
-            #print "debug: gLeft:", gLeft, "gRight:", gRight, "gTop:", gTop, "gBottom:", gBottom
-            vb.setMouseEnabled(True,True)
-            print "... data loaded successfully"
-
-        lastVisRange = visXRange
-    
-    def shiftChange(sb): #sb is spinbox
-        global plots
-        changedShift = 0
-        val = sb.value()
-        change = val - plots[1][1]
-        originalShift = plots[1][1]
-        for p in plots:
-            x = p[0].getData()[0]
-            y = p[0].getData()[1]
-            changeInShift = change*p[2] 
-            print "shift is changed by ", changeInShift, " for channel ",p[2]
-            p[0].setData(x=x,y=y+changeInShift)
-            p[1] = originalShift+changeInShift
-            print "new shift is ", p[1]
-
-    def checkAllCBs(): #check how to join these two functions
-        global checkBoxes
-        for cb in checkBoxes:
+    def checkAllCBs(self): #check how to join these two functions
+        for cb in self.checkBoxes:
             cb.setCheckState(2)
 
-    def uncheckAllCBs():
-        global checkBoxes
-        for cb in checkBoxes:
+    def uncheckAllCBs(self):
+        for cb in self.checkBoxes:
             cb.setCheckState(0)
 
-    def openPlotWindow(): #check whether the windows are kicked out of the memory after closing or not
-        global wins, lr, dataset, checkBoxes
-        lb = int(np.round(lr.getRegion()[0])) #left bound
-        rb = int(np.round(lr.getRegion()[1])) #right bound
-        yData = []
+    def outOfBounds(self):
+        if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
+            return False
+        else:
+            print "left ", (self.vb.viewRange()[0][0] < self.leftB)
+            print "right ", (self.vb.viewRange()[0][1] > self.rightB)
+            print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
+            print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
+            print "top ", (self.vb.viewRange()[1][1] > self.topB)
+            return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
+
+    #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
+    def updateData(self):
+        if self.minmaxBool:
+            self.emit(QtCore.SIGNAL("cancelThread()"))
+            visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
+            print "visXRange: ", visXRange        
+            exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            if((visXRange/(LOG**exp) < (0.1*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (10.0*VPP*self.vb.width())) or self.outOfBounds()):
+                print "visXRange/LOG**exp: ", visXRange/(LOG**exp)
+                print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
+                print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
+                print "outOfBounds: ", self.outOfBounds()
+                XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
+                if XLeftBound< 0:
+                    XLeftBound = 0
+
+                XRightBound = int(np.floor(self.vb.viewRange()[0][1] + visXRange/4))
+                if XRightBound > self.dataset.shape[0]:
+                    XRightBound = self.dataset.shape[0]
+
+                visYRange = int(self.vb.viewRange()[1][1] - self.vb.viewRange()[1][0])
+
+                self.updatePlots = [(p1,p2,xAxPos,ch) for (p1,p2,xAxPos,ch) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
+                self.leftB = XLeftBound
+                self.rightB = XRightBound
+                self.topB = self.updatePlots[-1][2]
+                self.bottomB = self.updatePlots[0][2]
+
+                self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
+ 
+                self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
+
+    def slidersMngFunc(self):
+        for w in self.wins:
+            w.plotSliderUpdate(self.slider.value())
+
+        for w in self.PSWins:
+            w.plotSliderUpdate(self.slider.value())
+            w.imgSliderUpdate(self.slider.value())
+
+        for w in self.matWins:
+            w.showData(self.slider.value())
+
+    #TODO handle if PS and matrix files are not present
+    def openNewPlotWin(self):
+        if self.minmaxBool:
+            exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            lb = int(np.ceil(self.lr.getRegion()[0]))
+            rb = int(np.ceil(self.lr.getRegion()[1]))
+            left = np.round(lb/(LOG**exp))
+            right = np.round(rb/(LOG**exp))
+            xData = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
+            yData = []
+            chans = [] 
+            i = 0
+            for cb in self.checkBoxes:
+                if (cb.isChecked()):
+                    yData.append([self.maxDataLevels[self.index][left:right,i], self.minDataLevels[self.index][left:right, i]])
+                    chans.append(i)
+                i += 1
+        else:
+            xData = range(self.dataset.shape[0])
+            yData = []
+            chans = []
+            i = 0
+            for cb in self.checkBoxes:
+                if (cb.isChecked()):
+                    yData.append([self.dataset[:,i], None])
+                    chans.append(i)
+                i += 1
+
+        plWindow = winCl.PlotWindow([xData,yData,chans])
+        self.wins.append(plWindow)
+        plWindow.showData()
+
+    def openPSWin(self):
+        numOfChans = 0
         i = 0
-        for cb in checkBoxes:
+        for cb in self.checkBoxes:
             if (cb.isChecked()):
-                yData.append([dataset[i,lb:rb], i]) #len(yData) gives number of plots
+                numOfChans += 1
+                chanNum = i
             i += 1
-        xData = range(lb,rb)
-        plotWin = OpenedWindow([xData,yData])
-        wins.append(plotWin)
-        plotWin.plotData() 
 
-    def openMatrixWindow():
-        global matrixFile, matrixWin
-        if (matrixFile is None):
-            print "No file with correlation matrix given."
-        elif (matrixWin is None):
-            npzData = np.load(matrixFile)
-            matrix = npzData[0]
-            matrixWin = OpenedWindow(matrix)
-            matrixWin.showMatrix()
+        if numOfChans != 1:
+            print "Please, choose exactly one channel per window."
+        else:
+            if self.minmaxBool:
+                exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+                xData = range(self.dataset.shape[0])[::LOG**exp]
+                yData = [[self.maxDataLevels[self.index][:,chanNum],self.minDataLevels[self.index][:,chanNum]]]
+            else:
+                xData = range(self.dataset.shape[0])
+                yData = [[self.dataset[:,chanNum], None]]
 
-    def updateMatrixWin():
-        global matrixWin
-        matrixWin.updateMatrix()
-
-    def openSpectrumWindow():
-        pass
-
-    #pdb.set_trace()
-    vb.sigRangeChanged.connect(dataUpdate)
-    spinbox.sigValueChanged.connect(shiftChange)
-    ckAllBtn.clicked.connect(checkAllCBs)
-    ckNoneBtn.clicked.connect(uncheckAllCBs)
-    openWindowBtn.clicked.connect(openPlotWindow)
-    slider.sigDragged.connect(updateMatrixWin)
-    openMatrixBtn.clicked.connect(openMatrixWindow)
+            chans = [chanNum]
+            window = winCl.PlotWindow([xData,yData,chans], self.powSpecData)
+            self.PSWins.append(window)
+            window.showData()
+            window.showPowSpec() 
     
-   
+    def openMatrixWin(self):
+        matWindow = winCl.CorrMatrixWindow(self.matrixData, 10, 2)
+        self.matWins.append(matWindow)
+        matWindow.showData(self.slider.value())
+
+    def shiftChange(self, sb): #sb is spinbox
+        val = sb.value()
+        if self.minmaxBool:
+            change = val - self.plots[1][2]
+            originalShift = self.plots[1][2]
+            for p in self.plots:
+                x1 = p[0].getData()[0]
+                x2 = p[1].getData()[0]
+                y1 = p[0].getData()[1]
+                y2 = p[1].getData()[1]
+                changeInShift = change*p[3]
+                p[0].setData(x=x1,y=y1+changeInShift)
+                p[1].setData(x=x2,y=y2+changeInShift)
+                p[2] = originalShift+changeInShift
+        else:
+            originalShift = self.plots[1][1]
+            change = val - self.plots[1][1]
+            for p in self.plots:
+                x = p[0].getData()[0]
+                y = p[0].getData()[1]
+                print "ch#: ", p[2]
+                print "originalShift: ", self.plots[1][1]
+                changeInShift = change*p[2]
+                p[0].setData(x=x, y=y+changeInShift)
+                p[1] = originalShift+changeInShift 
+
 if __name__ == '__main__':
     import sys
-    vizEEG(sys.argv[1],sys.argv[2])
-    if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
-        QtGui.QApplication.instance().exec_()
+    app = QtGui.QApplication(sys.argv)
+    if (len(sys.argv)>3):
+        mainwin = vizEEG(app, sys.argv[1],sys.argv[2],PSFile=sys.argv[3],PSPath=sys.argv[4], matrixFile=sys.argv[5], matrixPath=sys.argv[6])
+    else:
+        mainwin = vizEEG(app,sys.argv[1],sys.argv[2])
+
+    mainwin.show()
+    sys.exit(app.exec_())
