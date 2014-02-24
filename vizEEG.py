@@ -378,8 +378,6 @@ class vizEEG(QtGui.QMainWindow):
             for p in self.plots:
                 x = p[0].getData()[0]
                 y = p[0].getData()[1]
-                print "ch#: ", p[2]
-                print "originalShift: ", self.plots[1][1]
                 changeInShift = change*p[2]
                 p[0].setData(x=x, y=y+changeInShift)
                 p[1] = originalShift+changeInShift 
