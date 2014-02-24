@@ -32,7 +32,6 @@ class loadingTask(QtCore.QThread):
         self.stopping = False
         f = h5py.File(self.fileName, 'r')
         self.dataset = f[self.filePath]
-        #TODO handle if minmax not present
         minmax = f['minmax']
         maxData = minmax['h_max']
         maxDataLevels = [self.dataset]
@@ -47,7 +46,6 @@ class loadingTask(QtCore.QThread):
         exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(maxDataLevels[self.index].shape[0],LOG)))
         left = np.round(self.lb/(LOG**exp))
         right = np.round(self.rb/(LOG**exp))
-        #self.x = range(self.dataset.shape[0])[self.lb:self.rb:LOG**exp]
         self.x = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
         print "lb: ", self.lb, "rb: ", self.rb
         print "left: ", left, "right: ", right
@@ -102,8 +100,6 @@ class vizEEG(QtGui.QMainWindow):
         self.PSWins = []
         self.matWins = []
         dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, parent=self)
-        #TODO handle if minmax is not present
-        #'minmax' in f #vracia True alebo False, rovnako urob aj raw data
         self.minmaxBool = 'minmax' in f
         if not self.minmaxBool:
             dialog.setText("MinMax values not present!")
@@ -114,11 +110,6 @@ class vizEEG(QtGui.QMainWindow):
             if (retVal == QtGui.QMessageBox.Yes):
                 minmax.createMinMax(h5File, h5Path)
                 self.minmaxBool = True
-#            elif (retVal == QtGui.QMessageBox.No):
-#                self.maxDataLevels = [self.dataset]
-#                self.minDataLevels = None
-#            else:
-#                print "Something's wrong with the dialog window."
 
         if self.minmaxBool:
             minmax = f['minmax']
@@ -168,9 +159,7 @@ class vizEEG(QtGui.QMainWindow):
         self.plItem.setTitle(f.filename)
 
         print "... loading initial data, please wait..." 
-        #TODO handle if minmax is not present
         #initialise plots of hdf5 data
-        #only when setting the data into PlotWidget try if mindata are present
         if self.minmaxBool:
             VPPDeg = int(np.ceil(math.log(VPP*self.vb.width(),LOG)))
             i = 0
@@ -208,7 +197,6 @@ class vizEEG(QtGui.QMainWindow):
         col2.addWidget(ckAllBtn)
         col2.addWidget(ckNoneBtn)
         ckWidget.setLayout(ckLayout)
-        #ckLayout.addSpacing(0)
         scrArea.setWidget(ckWidget)
         
         
@@ -266,7 +254,6 @@ class vizEEG(QtGui.QMainWindow):
             return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
 
     #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
-    #TODO handle if minmax is not present
     def updateData(self):
         if self.minmaxBool:
             self.emit(QtCore.SIGNAL("cancelThread()"))
@@ -310,7 +297,6 @@ class vizEEG(QtGui.QMainWindow):
             w.showData(self.slider.value())
 
     #TODO handle if PS and matrix files are not present
-    #TODO find dialog window in pyQt doc to let the users know abouts errors
     def openNewPlotWin(self):
         if self.minmaxBool:
             exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
@@ -368,14 +354,11 @@ class vizEEG(QtGui.QMainWindow):
             window.showData()
             window.showPowSpec() 
     
-    #TODO test if matrices work correctly    
     def openMatrixWin(self):
         matWindow = winCl.CorrMatrixWindow(self.matrixData, 10, 2)
         self.matWins.append(matWindow)
         matWindow.showData(self.slider.value())
 
-    #TODO change according to presence of minmax
-    #TODO test if works correctly
     def shiftChange(self, sb): #sb is spinbox
         val = sb.value()
         if self.minmaxBool:
