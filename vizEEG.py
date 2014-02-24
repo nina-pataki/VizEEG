@@ -99,7 +99,7 @@ class vizEEG(QtGui.QMainWindow):
         self.wins = []
         self.PSWins = []
         self.matWins = []
-        dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, parent=self)
+        dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No)
         self.minmaxBool = 'minmax' in f
         if not self.minmaxBool:
             dialog.setText("MinMax values not present!")
@@ -131,7 +131,6 @@ class vizEEG(QtGui.QMainWindow):
         col2 = QtGui.QVBoxLayout()
         ckWidget = QtGui.QWidget()
         ckLayout = QtGui.QVBoxLayout()
-        #TODO correct scroll area display
         scrArea = QtGui.QScrollArea()
         col2.addWidget(scrArea)
         layout.addLayout(col1)
