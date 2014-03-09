@@ -4,7 +4,7 @@ import h5py
 from pyqtgraph.Qt import QtGui, QtCore
 import math
 import WindowClasses as winCl
-import minmax
+import minmax as minmaxFunc
 
 VPP = 1
 LOG = 10
@@ -61,7 +61,7 @@ class loadingTask(QtCore.QThread):
                 self.y1[:,j] = maxDataLevels[self.index][left:right,i]
                 self.y2[:,j] = minDataLevels[self.index][left:right,i]
                 j += 1
-                
+
         self.lock.unlock()
     def stopTask(self):
         self.stopping = True
@@ -108,7 +108,8 @@ class vizEEG(QtGui.QMainWindow):
             retVal = dialog.exec_()
 
             if (retVal == QtGui.QMessageBox.Yes):
-                minmax.createMinMax(h5File, h5Path)
+            #    f.close()
+                minmaxFunc.createMinMax(self.h5File, self.h5Path)
                 self.minmaxBool = True
 
         if self.minmaxBool:
@@ -176,6 +177,7 @@ class vizEEG(QtGui.QMainWindow):
                 y1 = self.maxDataLevels[self.index][:,ch]
                 y2 = self.minDataLevels[self.index][:,ch]
                 self.plots.append([self.plWidget.plot(x=x,y=y1+shift),self.plWidget.plot(x=x,y=y2+shift),shift,ch])
+#                print "channel ",ch ," finished plotting"
                 shift+=5000
         else:
             x = range(self.dataset.shape[0])
@@ -221,16 +223,21 @@ class vizEEG(QtGui.QMainWindow):
 
     def dataLoaded(self):
         i=0
-        print "---------thread finished debug----------"
-        print "v dataLoaded len(updatePlots): ", len(self.updatePlots)
-        print "worker.y1.shape: ", self.worker.y1.shape
-        print "worker.x length: ", len(self.worker.x)
-        print "---------thread finished debug end------"
+#        print "---------thread finished debug----------"
+#        print "v dataLoaded len(updatePlots): ", len(self.updatePlots)
+#        print "worker.y1.shape: ", self.worker.y1.shape
+#        print "worker.x length: ", len(self.worker.x)
+#        print "---------thread finished debug end------"
         if not self.worker.stopping:
             for (p1,p2,sh,ch) in self.updatePlots:
                 p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
                 p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
                 i+=1
+
+            self.leftB = self.worker.x[0]
+            self.rightB = self.worker.x[-1]
+            self.topB = self.updatePlots[-1][2]
+            self.bottomB = self.updatePlots[0][2]
             print "... data loaded successfully."
 
     def checkAllCBs(self): #check how to join these two functions
@@ -242,28 +249,34 @@ class vizEEG(QtGui.QMainWindow):
             cb.setCheckState(0)
 
     def outOfBounds(self):
-        if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
-            return False
-        else:
-            print "left ", (self.vb.viewRange()[0][0] < self.leftB)
-            print "right ", (self.vb.viewRange()[0][1] > self.rightB)
-            print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
-            print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
-            print "top ", (self.vb.viewRange()[1][1] > self.topB)
-            return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
+        print "left ", (self.vb.viewRange()[0][0] < self.leftB)
+        print "right ", (self.vb.viewRange()[0][1] > self.rightB)
+        print "self.vb.viewRange()[0][0] and leftB: ", self.vb.viewRange()[0][0], self.leftB
+        print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
+        print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
+        print "top ", (self.vb.viewRange()[1][1] > self.topB)
+  #      if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
+ #           return False
+ #       else:
+ #           print "left ", (self.vb.viewRange()[0][0] < self.leftB)
+ #           print "right ", (self.vb.viewRange()[0][1] > self.rightB)
+ #           print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
+ #           print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
+ #           print "top ", (self.vb.viewRange()[1][1] > self.topB)
+        return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
 
     #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
     def updateData(self):
         if self.minmaxBool:
             self.emit(QtCore.SIGNAL("cancelThread()"))
             visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
-            print "visXRange: ", visXRange        
             exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
-            if((visXRange/(LOG**exp) < (0.1*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (10.0*VPP*self.vb.width())) or self.outOfBounds()):
-                print "visXRange/LOG**exp: ", visXRange/(LOG**exp)
-                print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
-                print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
-                print "outOfBounds: ", self.outOfBounds()
+            print "visXRange: ", visXRange        
+            print "visXRange/LOG**exp: ", visXRange/(LOG**exp)
+            print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
+            print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
+            print "outOfBounds: ", self.outOfBounds()
+            if((visXRange/(LOG**exp) < (0.7*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (30*VPP*self.vb.width())) or self.outOfBounds()):
                 XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
                 if XLeftBound< 0:
                     XLeftBound = 0
@@ -275,13 +288,18 @@ class vizEEG(QtGui.QMainWindow):
                 visYRange = int(self.vb.viewRange()[1][1] - self.vb.viewRange()[1][0])
 
                 self.updatePlots = [(p1,p2,xAxPos,ch) for (p1,p2,xAxPos,ch) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
-                self.leftB = XLeftBound
-                self.rightB = XRightBound
-                self.topB = self.updatePlots[-1][2]
-                self.bottomB = self.updatePlots[0][2]
+#                self.leftB = XLeftBound
+#                self.rightB = XRightBound
+#                self.topB = self.updatePlots[-1][2]
+#                self.bottomB = self.updatePlots[0][2]
 
                 self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
- 
+                print "-----------Debug nacitania dat--------------"
+                print "nastavujem top na: ", self.updatePlots[0][3]
+                print "nastavujem bottom na: ", self.updatePlots[-1][3]
+                print "nastavujem right bound na: ", XRightBound
+                print "nastavujem left bound na: ", XLeftBound
+                print "-----------Debug nacitania dat--------------"
                 self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
     def slidersMngFunc(self):
@@ -384,7 +402,9 @@ class vizEEG(QtGui.QMainWindow):
 
 if __name__ == '__main__':
     import sys
-    app = QtGui.QApplication(sys.argv)
+    import getopt
+    app = QtGui.QApplication([])
+#    opts, args = getopt.getopt(argv, "h", ["help", "grammar="])
     if (len(sys.argv)>3):
         mainwin = vizEEG(app, sys.argv[1],sys.argv[2],PSFile=sys.argv[3],PSPath=sys.argv[4], matrixFile=sys.argv[5], matrixPath=sys.argv[6])
     else:
