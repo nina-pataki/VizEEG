@@ -153,7 +153,7 @@ class vizEEG(QtGui.QMainWindow):
         self.plItem = self.plWidget.getPlotItem()
         self.vb = self.plItem.getViewBox()
         self.lr = pg.LinearRegionItem(values=[int(np.round(self.dataset.shape[0]*0.1)), int(np.round(self.dataset.shape[0]*0.2))], bounds=[0,self.dataset.shape[0]], movable=True)
-        self.slider = pg.InfiniteLine(pos=int(np.round(self.dataset.shape[0]*0.3)), movable=True, pen='r')
+        self.slider = pg.InfiniteLine(pos=int(np.round(self.dataset.shape[0]*0.3)), movable=True, pen='r', bounds=[0,self.dataset.shape[0]])
         self.plWidget.addItem(self.slider)
         self.plWidget.addItem(self.lr)
         self.plItem.setTitle(f.filename)
@@ -400,15 +400,62 @@ class vizEEG(QtGui.QMainWindow):
                 p[0].setData(x=x, y=y+changeInShift)
                 p[1] = originalShift+changeInShift 
 
+def parseFile(inFile):
+    raise Exception("File not found")
+
 if __name__ == '__main__':
     import sys
-    import getopt
-    app = QtGui.QApplication([])
-#    opts, args = getopt.getopt(argv, "h", ["help", "grammar="])
-    if (len(sys.argv)>3):
-        mainwin = vizEEG(app, sys.argv[1],sys.argv[2],PSFile=sys.argv[3],PSPath=sys.argv[4], matrixFile=sys.argv[5], matrixPath=sys.argv[6])
-    else:
-        mainwin = vizEEG(app,sys.argv[1],sys.argv[2])
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--matrix', metavar=('FILE','PATH'), nargs=2)
+    parser.add_argument('-p', '--powSpect', metavar=('FILE', 'PATH'), nargs=2)
+    parser.add_argument('file', nargs=1)
+    parser.add_argument('path', nargs='?')
+    argsNamespace = parser.parse_args()
+    args = vars(argsNamespace)
+    parsedArgs = None
+    if args["path"] is None:
+        try:
+            parsedArgs = parseFile(args["file"])
+        except Exception as e:
+            parser.error(e)
 
+    app = QtGui.QApplication(sys.argv)
+    pf = None
+    pp = None
+    mf = None
+    mp = None
+    f = None
+    path = None
+
+    if parsedArgs is None:
+        if args["powSpect"] is not None:
+            pf = args["powSpect"][0]
+            pp = args["powSpect"][1]
+
+        if args["matrix"] is not None:
+            mf = args["matrix"][0]
+            mp = args["matrix"][1]
+        f = args["file"]
+        path = args["path"]
+
+    else: #write code for file parsing, there surely is some library for this
+        f = parsedArgs[0]
+        path = parsedArgs[1]
+        pf = parsedArgs[2]
+        pp = parsedArgs[3]
+        mf = parsedArgs[4]
+        mp = parsedArgs[5] 
+ 
+    mainwin = vizEEG(app, f[0], path,PSFile=pf,PSPath=pp, matrixFile=mf, matrixPath=mp)
     mainwin.show()
     sys.exit(app.exec_())
+
+#    app = QtGui.QApplication([])
+#    if (len(sys.argv)>3):
+#        mainwin = vizEEG(app, sys.argv[1],sys.argv[2],PSFile=sys.argv[3],PSPath=sys.argv[4], matrixFile=sys.argv[5], matrixPath=sys.argv[6])
+#    else:
+#        mainwin = vizEEG(app,sys.argv[1],sys.argv[2])
+
+#    mainwin.show()
+#    sys.exit(app.exec_())
