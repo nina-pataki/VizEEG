@@ -75,7 +75,7 @@ class vizEEG(QtGui.QMainWindow):
         
         QtGui.QMainWindow.__init__(self)
         self.setWindowTitle("vizEEG")
-        self.resize(600, 800)
+        self.resize(800, 800)
         self.h5File = h5File
         self.h5Path = h5Path
         f = h5py.File(self.h5File,'r')
@@ -137,6 +137,7 @@ class vizEEG(QtGui.QMainWindow):
         layout.addLayout(col1)
         layout.addLayout(col2)
         cw.setLayout(layout)
+        layout.setStretchFactor(col1,150)
 
         self.plWidget = pg.PlotWidget() #plotWidget segfaults for some reason
         col1.addWidget(self.plWidget)
@@ -191,7 +192,6 @@ class vizEEG(QtGui.QMainWindow):
         #check boxes for choosing channels
         for cb in self.checkBoxes:
             ckLayout.addWidget(cb)
-            cb.setContentsMargins(-1,0,-1,0)
 
         ckAllBtn = QtGui.QPushButton("Check all channels")
         ckNoneBtn = QtGui.QPushButton("Uncheck all channels")
@@ -374,7 +374,8 @@ class vizEEG(QtGui.QMainWindow):
     def openMatrixWin(self):
         matWindow = winCl.CorrMatrixWindow(self.matrixData, 10, 2)
         self.matWins.append(matWindow)
-        matWindow.showData(self.slider.value())
+        if matWindow.ok:
+            matWindow.showData(self.slider.value())
 
     def shiftChange(self, sb): #sb is spinbox
         val = sb.value()
@@ -401,7 +402,34 @@ class vizEEG(QtGui.QMainWindow):
                 p[1] = originalShift+changeInShift 
 
 def parseFile(inFile):
-    raise Exception("File not found")
+
+    f = open(inFile, 'r')
+    lines = []
+    for line in f:
+        lines.append(line)
+    if len(lines) > 3:
+        raise Exception("File contains too many lines, 3 lines are expected.")
+    parsed = {"f":None, "path":None, "mf":None, "mp":None, "pf":None, "pp":None}
+    #strip whitespace and parse
+    for i in range(len(lines)):
+        lines[i].strip()
+        lines[i] = lines[i].split(":")
+        try:
+            if lines[i][0] == 'f':
+                parsed["f"] = lines[i][1]
+                parsed["path"] = lines[i][2]
+            elif lines[i][0] == "m":
+                parsed["mf"] = lines[i][1]
+                parsed["mp"] = lines[i][2]
+            elif lines[i][0] == "p":
+                parsed["pf"] = lines[i][1]
+                parsed["pp"] = lines[i][2]
+        except Exception as e:
+            raise Exception(e)
+    if parsed["file"] == None or parsed["path"] == None:
+        raise Exception("File must specify at least a path to a h5 file with a h5 path to eeg data")       
+    f.close()
+    return parsed
 
 if __name__ == '__main__':
     import sys
@@ -414,6 +442,7 @@ if __name__ == '__main__':
     argsNamespace = parser.parse_args()
     args = vars(argsNamespace)
     parsedArgs = None
+#    parseFile(args["file"][0])
     if args["path"] is None:
         try:
             parsedArgs = parseFile(args["file"])
@@ -440,12 +469,12 @@ if __name__ == '__main__':
         path = args["path"]
 
     else: #write code for file parsing, there surely is some library for this
-        f = parsedArgs[0]
-        path = parsedArgs[1]
-        pf = parsedArgs[2]
-        pp = parsedArgs[3]
-        mf = parsedArgs[4]
-        mp = parsedArgs[5] 
+        f = parsedArgs["f"]
+        path = parsedArgs["path"]
+        pf = parsedArgs["pf"]
+        pp = parsedArgs["pp"]
+        mf = parsedArgs["mf"]
+        mp = parsedArgs["mp"] 
  
     mainwin = vizEEG(app, f[0], path,PSFile=pf,PSPath=pp, matrixFile=mf, matrixPath=mp)
     mainwin.show()

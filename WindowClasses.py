@@ -6,7 +6,7 @@ class PlotWindow(QtGui.QMainWindow):
     #TODO test if setAttribute(55) works
     def __init__(self, data, PSData=None): #data = [xData,yData,chans] where xData = range(lb,rb), yData = [maxdata, mindata], chans = [ch#]
         QtGui.QMainWindow.__init__(self)
-        self.resize(600, 800)
+        self.resize(800, 800)
         self.setWindowTitle("vizEEG")
         cw = QtGui.QWidget()
         self.plot = pg.PlotWidget()
@@ -49,9 +49,14 @@ class PlotWindow(QtGui.QMainWindow):
         self.img.addItem(self.imgSlider)
         self.plotSlider.sigDragged.connect(self.imgSliderFunc)
         self.imgSlider.sigDragged.connect(self.plotSliderFunc)
+        
         #makeRGBA outputs a tuple (imgArray,isThereAlphaChannel?)
         PSRGBAImg = pg.makeRGBA(self.PSData[:,:,self.data[2][0]], levels=[np.amin(self.PSData[:,:,self.data[2][0]]), np.amax(self.PSData[:,:,self.data[2][0]])])[0]
         self.img.setImage(PSRGBAImg)
+
+    def colourInput(self, text):
+        colOptions = ["0,0,255 255,0,0", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
+        return QtGui.QInputDialog.getItem(self, "vizEEG", text, colOptions, editable=True)
 
     def plotSliderUpdate(self, val):
         self.plotSlider.setPos(val)
@@ -72,7 +77,7 @@ class CorrMatrixWindow(QtGui.QMainWindow):
     def __init__(self, matData, compWinSize, compWinStep):
         QtGui.QMainWindow.__init__(self)
         self.setWindowTitle("vizEEG - Correlation Matrix display")
-        self.resize(600, 800)
+        self.resize(800, 800)
 #        self.setAttribute(55)
         self.img = pg.ImageView()
         self.setCentralWidget(self.img)
@@ -80,10 +85,11 @@ class CorrMatrixWindow(QtGui.QMainWindow):
         self.cWSize = compWinSize
         self.cWStep = compWinStep
         self.matData = matData
-        r3 = None
-        colours, self.ok = self.colourInput("Choose a colouring for power spectra images or enter a different one in format RRR,GGG,BBB.\n Please, separate colours (2 or 3) with space.\n If Cancel is clicked matrix will be displayed in gray scale.")        
+        self.r3 = None
+        colours, self.ok = self.colourInput("Choose a colouring for power spectra images or enter a different one in format RRR,GGG,BBB.\n Please, separate colours (2 or 3) with space.\n If Cancel is clicked matrix will be displayed in gray scale.")
+        print colours
         if self.ok: #este sa treba postarat o format, nie len o rozsah hodnot
-            parsed = colours.split()
+            parsed = colours.split(" ")
             self.r1 = int(parsed[0].split(',')[0])
             self.g1 = int(parsed[0].split(',')[1])
             self.b1 = int(parsed[0].split(',')[2])
@@ -95,9 +101,11 @@ class CorrMatrixWindow(QtGui.QMainWindow):
                 self.g3 = int(parsed[2].split(',')[1])
                 self.b3 = int(parsed[2].split(',')[2])
             okRange = range(256)
-            areColsOk = r1 in okRange and r2 in okRange and g1 in okRange and g2 in okRange and b1 in okRange and b2 in okRange 
-            areColsOk = areColsOk and r3 in okRange and g3 in okRange and b3 in okRange if len(parsed) == 3        
+            areColsOk = self.r1 in okRange and self.r2 in okRange and self.g1 in okRange and self.g2 in okRange and self.b1 in okRange and self.b2 in okRange 
+            if len(parsed) == 3:
+                areColsOk = areColsOk and r3 in okRange and g3 in okRange and b3 in okRange
             if not areColsOk:
+                self.ok = False
                 msgBox = QtGui.MessageBox()
                 msgBox.setWindowTitle("Colour Error")
                 msgBox.setText("Colours input in incorrect format.")
@@ -120,21 +128,11 @@ class CorrMatrixWindow(QtGui.QMainWindow):
 
         matRGB = pg.makeRGBA(self.matData[:,:,pos], levels=[np.amin(self.matData[:,:,pos]), np.amax(self.matData[:,:,pos])])[0]
 
-        if ok:
-            okRange = range(256)
-            colsOk = self.r1 in okRange and self.r2 in okRange and self.g1 in okRange and self.g2 in okRange and self.b1 in okRange and self.b2 in okRange
-            colsOk = colsOk and self.r3 in okRange and self.g3 in okRange and self.b3 in okRange if len(parsed) == 3
-
-            if not colsOk:
-                msgBox = QtGui.MessageBox()
-                msgBox.setWindowTitle("Colour Error")
-                msgBox.setText("Colours input in incorrect format.")
-                msgBox.exec_()
-                self.close()
+        if self.ok:
 
             matRGBCol = np.zeros(matRGB.shape, dtype="int")
-            for i in matRGB.shape[0]:
-                for j in matRGB.shape[1]:
+            for i in range(matRGB.shape[0]):
+                for j in range(matRGB.shape[1]):
                     if self.r3 is not None:
                         if matRGB[i,j,0] < 128:
                             matRGBCol[i,j,0] = int((matRGB[i,j,0]/128.0)*self.r1 + (1-(matRGB[i,j,0]/128.0))*self.r2)
@@ -150,6 +148,7 @@ class CorrMatrixWindow(QtGui.QMainWindow):
                         matRGBCol[i,j,2] = int((matRGB[i,j,2]/255.0)*self.b1 + (1-(matRGB[i,j,2]/255.0))*self.b2)
 
             self.img.setImage(matRGBCol)
+            print "image set"
         else:
             self.img.setImage(matRGB)
 
