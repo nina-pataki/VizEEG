@@ -5,6 +5,7 @@ from pyqtgraph.Qt import QtGui, QtCore
 import math
 import WindowClasses as winCl
 import minmax as minmaxFunc
+import Tkinter
 
 VPP = 1
 LOG = 10
@@ -75,11 +76,14 @@ class vizEEG(QtGui.QMainWindow):
         
         QtGui.QMainWindow.__init__(self)
         self.setWindowTitle("vizEEG")
-        self.resize(800, 800)
+        root = Tkinter.Tk()
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        self.resize(sw/2, sh/2)
         self.h5File = h5File
         self.h5Path = h5Path
         f = h5py.File(self.h5File,'r')
-        
+    
         self.dataset = f[self.h5Path]
         if PSFile is not None:
             g = h5py.File(PSFile, 'r')
@@ -99,6 +103,7 @@ class vizEEG(QtGui.QMainWindow):
         self.wins = []
         self.PSWins = []
         self.matWins = []
+        self.msgbox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "vizEEG", "text")
         dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No)
         self.minmaxBool = 'minmax' in f
         if not self.minmaxBool:
@@ -107,6 +112,8 @@ class vizEEG(QtGui.QMainWindow):
             dialog.setDefaultButton(QtGui.QMessageBox.Ok)
             retVal = dialog.exec_()
 
+            #TODO manage opening/closing files with different privilages
+            #and TEST IT!!
             if (retVal == QtGui.QMessageBox.Yes):
             #    f.close()
                 minmaxFunc.createMinMax(self.h5File, self.h5Path)
@@ -139,7 +146,7 @@ class vizEEG(QtGui.QMainWindow):
         cw.setLayout(layout)
         layout.setStretchFactor(col1,150)
 
-        self.plWidget = pg.PlotWidget() #plotWidget segfaults for some reason
+        self.plWidget = pg.PlotWidget()
         col1.addWidget(self.plWidget)
         self.spinbox = pg.SpinBox(value=5000, int=True, step=100)
         col1.addWidget(self.spinbox)
@@ -158,7 +165,6 @@ class vizEEG(QtGui.QMainWindow):
         self.plWidget.addItem(self.slider)
         self.plWidget.addItem(self.lr)
         self.plItem.setTitle(f.filename)
-
         print "... loading initial data, please wait..." 
         #initialise plots of hdf5 data
         if self.minmaxBool:
@@ -172,14 +178,18 @@ class vizEEG(QtGui.QMainWindow):
             exp = int(np.floor(math.log(self.dataset.shape[0], LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
             x = range(self.dataset.shape[0])[::LOG**exp]
             shift = 0
-
+            #TODO what if we initially choose the biggest dataset?
+            #actually, we should not, how can I access amount of free memory
             for ch in range(self.dataset.shape[1]): #ch - channel number
                 self.checkBoxes.append(QtGui.QCheckBox("Channel "+str(ch)))
                 y1 = self.maxDataLevels[self.index][:,ch]
                 y2 = self.minDataLevels[self.index][:,ch]
-                self.plots.append([self.plWidget.plot(x=x,y=y1+shift),self.plWidget.plot(x=x,y=y2+shift),shift,ch])
+                p1 = self.plWidget.plot(x=x,y=y1+shift)
+                p2 = self.plWidget.plot(x=x,y=y2+shift)
+                self.plots.append([p1,p2,shift,ch,None])
 #                print "channel ",ch ," finished plotting"
                 shift+=5000
+
         else:
             x = range(self.dataset.shape[0])
             shift = 0
@@ -190,8 +200,8 @@ class vizEEG(QtGui.QMainWindow):
                 shift+=5000
 
         #check boxes for choosing channels
-        for cb in self.checkBoxes:
-            ckLayout.addWidget(cb)
+        for i in range(len(self.checkBoxes)):
+            ckLayout.addWidget(self.checkBoxes[len(self.checkBoxes)-i-1])
 
         ckAllBtn = QtGui.QPushButton("Check all channels")
         ckNoneBtn = QtGui.QPushButton("Uncheck all channels")
@@ -216,10 +226,29 @@ class vizEEG(QtGui.QMainWindow):
         self.connect(self.worker,QtCore.SIGNAL("finished()"), self.dataLoaded)
         self.connect(self, QtCore.SIGNAL("cancelThread()"), self.worker.stopTask)
         newWinAct.triggered.connect(self.openNewPlotWin)
-        PSWinAct.triggered.connect(self.openPSWin)
-        matrixWinAct.triggered.connect(self.openMatrixWin)
+        if self.powSpecData is None:
+            PSWinAct.setDisabled(True)
+            PSWinAct.setText("Time-frequency spectra data are not available.")
+        else:
+            PSWinAct.triggered.connect(self.openPSWin)
+        if self.matrixData is None:
+            matrixWinAct.setDisabled(True)
+            matrixWinAct.setText("Correlation matrix is not available.")
+        else:
+            matrixWinAct.triggered.connect(self.openMatrixWin)
+
         self.spinbox.sigValueChanged.connect(self.shiftChange)
         self.slider.sigDragged.connect(self.slidersMngFunc)
+        self.show()
+
+
+    def fillPlots(self, plots):
+        for p in plots:
+            fill = pg.FillBetweenItem(p[0],p[1],'w')
+            self.plWidget.addItem(fill)
+            p[4] = fill
+            print "finnished filling plot number: ", p[3]
+
 
     def dataLoaded(self):
         i=0
@@ -229,9 +258,12 @@ class vizEEG(QtGui.QMainWindow):
 #        print "worker.x length: ", len(self.worker.x)
 #        print "---------thread finished debug end------"
         if not self.worker.stopping:
-            for (p1,p2,sh,ch) in self.updatePlots:
+            for (p1,p2,sh,ch,f) in self.updatePlots:
                 p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
                 p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
+                #self.plWidget.removeItem(f)
+                #f = pg.FillBetweenItem(p1,p2,'w')
+                #self.plWidget.addItem(f)
                 i+=1
 
             self.leftB = self.worker.x[0]
@@ -240,7 +272,7 @@ class vizEEG(QtGui.QMainWindow):
             self.bottomB = self.updatePlots[0][2]
             print "... data loaded successfully."
 
-    def checkAllCBs(self): #check how to join these two functions
+    def checkAllCBs(self): #TODO check how to join these two functions
         for cb in self.checkBoxes:
             cb.setCheckState(2)
 
@@ -249,12 +281,12 @@ class vizEEG(QtGui.QMainWindow):
             cb.setCheckState(0)
 
     def outOfBounds(self):
-        print "left ", (self.vb.viewRange()[0][0] < self.leftB)
-        print "right ", (self.vb.viewRange()[0][1] > self.rightB)
-        print "self.vb.viewRange()[0][0] and leftB: ", self.vb.viewRange()[0][0], self.leftB
-        print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
-        print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
-        print "top ", (self.vb.viewRange()[1][1] > self.topB)
+#        print "left ", (self.vb.viewRange()[0][0] < self.leftB)
+#        print "right ", (self.vb.viewRange()[0][1] > self.rightB)
+#        print "self.vb.viewRange()[0][0] and leftB: ", self.vb.viewRange()[0][0], self.leftB
+#        print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
+#        print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
+#        print "top ", (self.vb.viewRange()[1][1] > self.topB)
   #      if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
  #           return False
  #       else:
@@ -264,19 +296,23 @@ class vizEEG(QtGui.QMainWindow):
  #           print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
  #           print "top ", (self.vb.viewRange()[1][1] > self.topB)
         return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
-
+    #TODO what if we get to the lowest, biggest dataset? does it have p1, p2? it bothers me how I deal with having only one plot, since I'm on the lowest level. where is it? find it!
+    # we do get to that, when zooming to the lowest level, it screws with the index computation, esp. on the big screen
     #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
     def updateData(self):
         if self.minmaxBool:
             self.emit(QtCore.SIGNAL("cancelThread()"))
             visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
             exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
-            print "visXRange: ", visXRange        
-            print "visXRange/LOG**exp: ", visXRange/(LOG**exp)
-            print "0.1*VPP*width(): ", 0.1*VPP*self.vb.width()
-            print "10.0*VPP*width(): ", 10.0*VPP*self.vb.width()
-            print "outOfBounds: ", self.outOfBounds()
-            if((visXRange/(LOG**exp) < (0.7*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (30*VPP*self.vb.width())) or self.outOfBounds()):
+            print "-----------Debug--------------"
+            print "visXRange:", visXRange        
+            print "visXRange/LOG**exp:", visXRange/(LOG**exp)
+            print "0.1*VPP*width():", 0.1*VPP*self.vb.width()
+            print "10.0*VPP*width():", 10.0*VPP*self.vb.width()
+            print "outOfBounds:", self.outOfBounds()
+            print "current index:", self.index
+            print "-----------Debug--------------"
+            if((visXRange/(LOG**exp) < (0.7*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (20*VPP*self.vb.width())) or self.outOfBounds()):
                 XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
                 if XLeftBound< 0:
                     XLeftBound = 0
@@ -287,19 +323,26 @@ class vizEEG(QtGui.QMainWindow):
 
                 visYRange = int(self.vb.viewRange()[1][1] - self.vb.viewRange()[1][0])
 
-                self.updatePlots = [(p1,p2,xAxPos,ch) for (p1,p2,xAxPos,ch) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
+                self.updatePlots = [(p1,p2,xAxPos,ch,f) for (p1,p2,xAxPos,ch,f) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
 #                self.leftB = XLeftBound
 #                self.rightB = XRightBound
 #                self.topB = self.updatePlots[-1][2]
 #                self.bottomB = self.updatePlots[0][2]
 
                 self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
-                print "-----------Debug nacitania dat--------------"
-                print "nastavujem top na: ", self.updatePlots[0][3]
-                print "nastavujem bottom na: ", self.updatePlots[-1][3]
-                print "nastavujem right bound na: ", XRightBound
-                print "nastavujem left bound na: ", XLeftBound
-                print "-----------Debug nacitania dat--------------"
+                if self.index<0:
+                    self.index = 0
+                if self.index>(len(self.maxDataLevels))-1:
+                    self.index = (len(self.maxDataLevels))-1
+                print "-----------Debug--------------"
+                print "newly set index:", self.index
+                print "-----------Debug--------------"
+#                print "-----------Debug nacitania dat--------------"
+#                print "nastavujem top na: ", self.updatePlots[0][3]
+#                print "nastavujem bottom na: ", self.updatePlots[-1][3]
+#                print "nastavujem right bound na: ", XRightBound
+#                print "nastavujem left bound na: ", XLeftBound
+#                print "-----------Debug nacitania dat--------------"
                 self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
     def slidersMngFunc(self):
@@ -313,10 +356,14 @@ class vizEEG(QtGui.QMainWindow):
         for w in self.matWins:
             w.showData(self.slider.value())
 
-    #TODO handle if PS and matrix files are not present
     def openNewPlotWin(self):
         if self.minmaxBool:
-            exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+            visXRange = self.lr.getRegion()[1] - self.lr.getRegion()[0]
+            root = Tkinter.Tk()
+            sw = root.winfo_screenwidth()
+            vbWidth = (sw/2)*0.9
+            tempIndex = int(np.floor(math.log(visXRange/vbWidth * VPP,LOG)))
+            exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[tempIndex].shape[0],LOG)))
             lb = int(np.ceil(self.lr.getRegion()[0]))
             rb = int(np.ceil(self.lr.getRegion()[1]))
             left = np.round(lb/(LOG**exp))
@@ -327,23 +374,28 @@ class vizEEG(QtGui.QMainWindow):
             i = 0
             for cb in self.checkBoxes:
                 if (cb.isChecked()):
-                    yData.append([self.maxDataLevels[self.index][left:right,i], self.minDataLevels[self.index][left:right, i]])
+                    yData.append([self.maxDataLevels[tempIndex][left:right,i], self.minDataLevels[tempIndex][left:right, i]])
                     chans.append(i)
-                i += 1
+                i += 1            
         else:
-            xData = range(self.dataset.shape[0])
+            lb = int(np.ceil(self.lr.getRegion()[0]))
+            rb = int(np.ceil(self.lr.getRegion()[1]))
+            xData = range(self.dataset.shape[0])[lb:rb]
             yData = []
             chans = []
             i = 0
             for cb in self.checkBoxes:
                 if (cb.isChecked()):
-                    yData.append([self.dataset[:,i], None])
+                    yData.append([self.dataset[lb:rb,i], None])
                     chans.append(i)
                 i += 1
-
-        plWindow = winCl.PlotWindow([xData,yData,chans])
-        self.wins.append(plWindow)
-        plWindow.showData()
+        if len(yData) == 0:
+            self.msgbox.setText("Please, choose at least one channel to display.")
+            self.msgbox.exec_()
+        else:
+            plWindow = winCl.PlotWindow([xData,yData,chans])
+            self.wins.append(plWindow)
+            plWindow.showData()
 
     def openPSWin(self):
         numOfChans = 0
@@ -355,12 +407,17 @@ class vizEEG(QtGui.QMainWindow):
             i += 1
 
         if numOfChans != 1:
-            print "Please, choose exactly one channel per window."
+            self.msgbox.setText("Please, choose exactly one channel per window.")
+            self.msgbox.exec_()
         else:
             if self.minmaxBool:
-                exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
+                root = Tkinter.Tk()
+                sw = root.winfo_screenwidth()
+                vbWidth = (sw/2)*0.9
+                tempIndex = int(np.floor(math.log(self.dataset.shape[0]/vbWidth * VPP,LOG)))
+                exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[tempIndex].shape[0],LOG)))
                 xData = range(self.dataset.shape[0])[::LOG**exp]
-                yData = [[self.maxDataLevels[self.index][:,chanNum],self.minDataLevels[self.index][:,chanNum]]]
+                yData = [[self.maxDataLevels[tempIndex][:,chanNum],self.minDataLevels[tempIndex][:,chanNum]]]
             else:
                 xData = range(self.dataset.shape[0])
                 yData = [[self.dataset[:,chanNum], None]]
@@ -374,8 +431,8 @@ class vizEEG(QtGui.QMainWindow):
     def openMatrixWin(self):
         matWindow = winCl.CorrMatrixWindow(self.matrixData, 10, 2)
         self.matWins.append(matWindow)
-        if matWindow.ok:
-            matWindow.showData(self.slider.value())
+        #if matWindow.ok:
+        matWindow.showData(self.slider.value())
 
     def shiftChange(self, sb): #sb is spinbox
         val = sb.value()
@@ -403,27 +460,28 @@ class vizEEG(QtGui.QMainWindow):
 
 def parseFile(inFile):
 
-    f = open(inFile, 'r')
+    f = open(inFile[0], 'r')
+    print inFile
     lines = []
     for line in f:
         lines.append(line)
     if len(lines) > 3:
         raise Exception("File contains too many lines, 3 lines are expected.")
-    parsed = {"f":None, "path":None, "mf":None, "mp":None, "pf":None, "pp":None}
+    parsed = {"file":None, "path":None, "mf":None, "mp":None, "tff":None, "tfp":None}
     #strip whitespace and parse
     for i in range(len(lines)):
         lines[i].strip()
         lines[i] = lines[i].split(":")
         try:
             if lines[i][0] == 'f':
-                parsed["f"] = lines[i][1]
+                parsed["file"] = lines[i][1]
                 parsed["path"] = lines[i][2]
             elif lines[i][0] == "m":
                 parsed["mf"] = lines[i][1]
                 parsed["mp"] = lines[i][2]
-            elif lines[i][0] == "p":
-                parsed["pf"] = lines[i][1]
-                parsed["pp"] = lines[i][2]
+            elif lines[i][0] == "tf":
+                parsed["tff"] = lines[i][1]
+                parsed["tfp"] = lines[i][2]
         except Exception as e:
             raise Exception(e)
     if parsed["file"] == None or parsed["path"] == None:
@@ -436,48 +494,53 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--matrix', metavar=('FILE','PATH'), nargs=2)
-    parser.add_argument('-p', '--powSpect', metavar=('FILE', 'PATH'), nargs=2)
+    parser.add_argument('-s', '--tfSpect', metavar=('FILE', 'PATH'), nargs=2)
     parser.add_argument('file', nargs=1)
     parser.add_argument('path', nargs='?')
     argsNamespace = parser.parse_args()
     args = vars(argsNamespace)
     parsedArgs = None
-#    parseFile(args["file"][0])
+#    print args
     if args["path"] is None:
-        try:
-            parsedArgs = parseFile(args["file"])
-        except Exception as e:
-            parser.error(e)
-
+#        try:            
+#            parsedArgs = parseFile(args["file"])
+#        except Exception as e:
+#            print "bum"
+#            parser.error(e)
+         parsedArgs = parseFile(args["file"])
     app = QtGui.QApplication(sys.argv)
-    pf = None
-    pp = None
+    tff = None
+    tfp = None
     mf = None
     mp = None
     f = None
     path = None
 
     if parsedArgs is None:
-        if args["powSpect"] is not None:
-            pf = args["powSpect"][0]
-            pp = args["powSpect"][1]
+        if args["tfSpect"] is not None:
+            tff = args["tfSpect"][0]
+            tfp = args["tfSpect"][1]
 
         if args["matrix"] is not None:
             mf = args["matrix"][0]
             mp = args["matrix"][1]
-        f = args["file"]
+#        print args["file"][0]
+#        print type(args["file"][0])
+        f = args["file"][0]
         path = args["path"]
 
     else: #write code for file parsing, there surely is some library for this
-        f = parsedArgs["f"]
+        f = parsedArgs["file"]
         path = parsedArgs["path"]
-        pf = parsedArgs["pf"]
-        pp = parsedArgs["pp"]
+        tff = parsedArgs["tff"]
+        tfp = parsedArgs["tfp"]
         mf = parsedArgs["mf"]
         mp = parsedArgs["mp"] 
- 
-    mainwin = vizEEG(app, f[0], path,PSFile=pf,PSPath=pp, matrixFile=mf, matrixPath=mp)
-    mainwin.show()
+#    print f
+#    print path
+    mainwin = vizEEG(app, f, path, PSFile=tff,PSPath=tfp, matrixFile=mf, matrixPath=mp)
+#    mainwin.show()
+#    mainwin.fillPlots(mainwin.plots)
     sys.exit(app.exec_())
 
 #    app = QtGui.QApplication([])
