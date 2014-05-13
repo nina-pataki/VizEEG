@@ -11,11 +11,17 @@ VPP = 1
 LOG = 10
 
 class loadingTask(QtCore.QThread):
+
+    "Loads time series data in the background thread."    
+
     def __init__(self, parent=None):
         QtCore.QThread.__init__(self,parent)
         self.lock = QtCore.QMutex()
 
     def loadData(self,ch1,ch2, lb, rb, index, fileName, filePath):
+
+        "Initialises the data."
+
         print "... loading data..."
         self.fileName = fileName
         self.filePath = filePath
@@ -48,10 +54,10 @@ class loadingTask(QtCore.QThread):
         left = np.round(self.lb/(LOG**exp))
         right = np.round(self.rb/(LOG**exp))
         self.x = range(self.dataset.shape[0])[left*LOG**exp:right*LOG**exp:LOG**exp]
-        print "lb: ", self.lb, "rb: ", self.rb
-        print "left: ", left, "right: ", right
-        print "ch1: ", self.ch1
-        print "ch2: ", self.ch2
+#        print "lb: ", self.lb, "rb: ", self.rb
+#        print "left: ", left, "right: ", right
+#        print "ch1: ", self.ch1
+#        print "ch2: ", self.ch2
         self.y1 = np.zeros((right-left,(self.ch2-self.ch1)+1))
         self.y2 = np.zeros((right-left,(self.ch2-self.ch1)+1)) 
         j = 0
@@ -64,6 +70,7 @@ class loadingTask(QtCore.QThread):
                 j += 1
 
         self.lock.unlock()
+
     def stopTask(self):
         self.stopping = True
         print "cancelling thread"     
@@ -72,7 +79,11 @@ class loadingTask(QtCore.QThread):
 
 class vizEEG(QtGui.QMainWindow):
 
+    "The main class. It constructs the GUI with signals and interacts with the user."
+
     def __init__(self, app, h5File, h5Path, matrixFile=None, matrixPath=None, PSFile=None, PSPath=None):
+
+        "Initialises Qt GUI and loads the initial data."
         
         QtGui.QMainWindow.__init__(self)
         self.setWindowTitle("vizEEG")
@@ -105,6 +116,10 @@ class vizEEG(QtGui.QMainWindow):
         self.matWins = []
         self.msgbox = QtGui.QMessageBox(QtGui.QMessageBox.Warning, "vizEEG", "text")
         dialog = QtGui.QMessageBox(QtGui.QMessageBox.Question, "vizEEG", "text", buttons=QtGui.QMessageBox.Yes | QtGui.QMessageBox.No)
+
+        #If minmax group is not present in the hdf5 file, ask the user if they want
+        #to create one.
+
         self.minmaxBool = 'minmax' in f
         if not self.minmaxBool:
             dialog.setText("MinMax values not present!")
@@ -119,6 +134,8 @@ class vizEEG(QtGui.QMainWindow):
                 minmaxFunc.createMinMax(self.h5File, self.h5Path)
                 self.minmaxBool = True
 
+        #Load the minmax data.
+
         if self.minmaxBool:
             minmax = f['minmax']
             maxData = minmax['h_max']
@@ -131,7 +148,7 @@ class vizEEG(QtGui.QMainWindow):
             for l in minData.keys():
                 self.minDataLevels.append(minData[l])
 
-        #create the layout and main widget
+        #Create the layout and a main widget.
         cw = QtGui.QWidget()
         self.setCentralWidget(cw)
         layout = QtGui.QHBoxLayout()
@@ -153,20 +170,28 @@ class vizEEG(QtGui.QMainWindow):
         menuBtn = QtGui.QPushButton("Open new window options")
         menu = QtGui.QMenu()
         menuBtn.setMenu(menu)
+
+        #Menu actions.
+
         newWinAct = menu.addAction("Open selection in a new window.")
         PSWinAct = menu.addAction("Open selected channel with a power spectrum.")
         matrixWinAct = menu.addAction("Open correlation matrix.")
+
         col1.addWidget(menuBtn)
 
         self.plItem = self.plWidget.getPlotItem()
         self.vb = self.plItem.getViewBox()
+ 
+        #Create a linear region (blue sliding stripe) and a red slider.
         self.lr = pg.LinearRegionItem(values=[int(np.round(self.dataset.shape[0]*0.1)), int(np.round(self.dataset.shape[0]*0.2))], bounds=[0,self.dataset.shape[0]], movable=True)
         self.slider = pg.InfiniteLine(pos=int(np.round(self.dataset.shape[0]*0.3)), movable=True, pen='r', bounds=[0,self.dataset.shape[0]])
         self.plWidget.addItem(self.slider)
         self.plWidget.addItem(self.lr)
         self.plItem.setTitle(f.filename)
+      
         print "... loading initial data, please wait..." 
-        #initialise plots of hdf5 data
+
+        #Initialise plots of time series data.
         if self.minmaxBool:
             VPPDeg = int(np.ceil(math.log(VPP*self.vb.width(),LOG)))
             i = 0
@@ -186,7 +211,9 @@ class vizEEG(QtGui.QMainWindow):
                 y2 = self.minDataLevels[self.index][:,ch]
                 p1 = self.plWidget.plot(x=x,y=y1+shift)
                 p2 = self.plWidget.plot(x=x,y=y2+shift)
-                self.plots.append([p1,p2,shift,ch,None])
+               # fill = pg.FillBetweenItem(p1,p2,'w')
+               # self.plWidget.addItem(fill)
+                self.plots.append([p1,p2,shift,ch])
 #                print "channel ",ch ," finished plotting"
                 shift+=5000
 
@@ -199,7 +226,7 @@ class vizEEG(QtGui.QMainWindow):
                 self.plots.append([self.plWidget.plot(x=x, y=y+shift), shift, ch])
                 shift+=5000
 
-        #check boxes for choosing channels
+        #Create the right-hand panel.
         for i in range(len(self.checkBoxes)):
             ckLayout.addWidget(self.checkBoxes[len(self.checkBoxes)-i-1])
 
@@ -210,7 +237,7 @@ class vizEEG(QtGui.QMainWindow):
         ckWidget.setLayout(ckLayout)
         scrArea.setWidget(ckWidget)
         
-        
+        #Set the main area view to show the whole data-set.
         self.vb.setRange(xRange=x, yRange=(self.plots[0][2]-5000,self.plots[-1][2]+5000), padding=0)
         self.leftB = 0
         self.rightB = self.dataset.shape[0]
@@ -219,7 +246,7 @@ class vizEEG(QtGui.QMainWindow):
 
         print "... initial data loaded"
 
-        #connect UI objects' signals to handling functions
+        #Connect UI objects' signals to handling functions.
         ckAllBtn.clicked.connect(self.checkAllCBs)
         ckNoneBtn.clicked.connect(self.uncheckAllCBs)
         self.vb.sigRangeChanged.connect(self.updateData)
@@ -239,26 +266,19 @@ class vizEEG(QtGui.QMainWindow):
 
         self.spinbox.sigValueChanged.connect(self.shiftChange)
         self.slider.sigDragged.connect(self.slidersMngFunc)
+
+        #And show the window.
         self.show()
 
-
-    def fillPlots(self, plots):
-        for p in plots:
-            fill = pg.FillBetweenItem(p[0],p[1],'w')
-            self.plWidget.addItem(fill)
-            p[4] = fill
-            print "finnished filling plot number: ", p[3]
-
-
     def dataLoaded(self):
+
+        """A function that fills the plot objects with loaded data from the
+           background thread. It is triggered after the thread finnishes 
+           fetching them from the h5 file."""
+
         i=0
-#        print "---------thread finished debug----------"
-#        print "v dataLoaded len(updatePlots): ", len(self.updatePlots)
-#        print "worker.y1.shape: ", self.worker.y1.shape
-#        print "worker.x length: ", len(self.worker.x)
-#        print "---------thread finished debug end------"
         if not self.worker.stopping:
-            for (p1,p2,sh,ch,f) in self.updatePlots:
+            for (p1,p2,sh,ch) in self.updatePlots:
                 p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
                 p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
                 #self.plWidget.removeItem(f)
@@ -270,48 +290,52 @@ class vizEEG(QtGui.QMainWindow):
             self.rightB = self.worker.x[-1]
             self.topB = self.updatePlots[-1][2]
             self.bottomB = self.updatePlots[0][2]
-            print "... data loaded successfully."
 
-    def checkAllCBs(self): #TODO check how to join these two functions
+    def checkAllCBs(self):
+
+        "Checks all the checkboxes in the right-hand panel."
+
         for cb in self.checkBoxes:
             cb.setCheckState(2)
 
     def uncheckAllCBs(self):
+
+        "Unchecks all the checkboxes in the left-hand panel."
+
         for cb in self.checkBoxes:
             cb.setCheckState(0)
 
     def outOfBounds(self):
-#        print "left ", (self.vb.viewRange()[0][0] < self.leftB)
-#        print "right ", (self.vb.viewRange()[0][1] > self.rightB)
-#        print "self.vb.viewRange()[0][0] and leftB: ", self.vb.viewRange()[0][0], self.leftB
-#        print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
-#        print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
-#        print "top ", (self.vb.viewRange()[1][1] > self.topB)
-  #      if (self.vb.viewRange()[0][0] < 0 or self.vb.viewRange()[0][1] > self.dataset.shape[0] or self.vb.viewRange()[1][0] < -5000 or self.vb.viewRange()[1][1] > self.plots[-1][2]+5000):
- #           return False
- #       else:
- #           print "left ", (self.vb.viewRange()[0][0] < self.leftB)
- #           print "right ", (self.vb.viewRange()[0][1] > self.rightB)
- #           print "self.vb.viewRange()[0][1] and rightB: ", self.vb.viewRange()[0][1], self.rightB
- #           print "bottom ", (self.vb.viewRange()[1][0] < self.bottomB)
- #           print "top ", (self.vb.viewRange()[1][1] > self.topB)
+
+        """
+        Defines if the view range of the main area is out of bounds of loaded
+        data.
+
+        Returns a boolean value. 
+        """
+ 
         return ((self.vb.viewRange()[0][0] < self.leftB) or (self.vb.viewRange()[0][1] > self.rightB) or (self.vb.viewRange()[1][0] < self.bottomB) or (self.vb.viewRange()[1][1] > self.topB))
-    #TODO what if we get to the lowest, biggest dataset? does it have p1, p2? it bothers me how I deal with having only one plot, since I'm on the lowest level. where is it? find it!
-    # we do get to that, when zooming to the lowest level, it screws with the index computation, esp. on the big screen
-    #TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
+
+#TODO test on a big screen    
+#TODO otestovat nahratie regionov mimo visRange, specialne x suradnicu v najemnejsich datach
     def updateData(self):
+
+        """Function with the data tiling algorithm. It determines if new data has 
+           has to be loaded. If it is so, it calls the background loading thread.
+        """
+
         if self.minmaxBool:
             self.emit(QtCore.SIGNAL("cancelThread()"))
             visXRange = int(self.vb.viewRange()[0][1] - self.vb.viewRange()[0][0])
             exp = int(np.floor(math.log(self.dataset.shape[0],LOG))) - int(np.floor(math.log(self.maxDataLevels[self.index].shape[0],LOG)))
-            print "-----------Debug--------------"
-            print "visXRange:", visXRange        
-            print "visXRange/LOG**exp:", visXRange/(LOG**exp)
-            print "0.1*VPP*width():", 0.1*VPP*self.vb.width()
-            print "10.0*VPP*width():", 10.0*VPP*self.vb.width()
-            print "outOfBounds:", self.outOfBounds()
-            print "current index:", self.index
-            print "-----------Debug--------------"
+#            print "-----------Debug--------------"
+#            print "visXRange:", visXRange        
+#            print "visXRange/LOG**exp:", visXRange/(LOG**exp)
+#            print "0.1*VPP*width():", 0.1*VPP*self.vb.width()
+#            print "10.0*VPP*width():", 10.0*VPP*self.vb.width()
+#            print "outOfBounds:", self.outOfBounds()
+#            print "current index:", self.index
+#            print "-----------Debug--------------"
             if((visXRange/(LOG**exp) < (0.7*VPP*self.vb.width())) or (visXRange/(LOG**exp) > (20*VPP*self.vb.width())) or self.outOfBounds()):
                 XLeftBound = int(np.floor(self.vb.viewRange()[0][0]-visXRange/4))
                 if XLeftBound< 0:
@@ -323,29 +347,22 @@ class vizEEG(QtGui.QMainWindow):
 
                 visYRange = int(self.vb.viewRange()[1][1] - self.vb.viewRange()[1][0])
 
-                self.updatePlots = [(p1,p2,xAxPos,ch,f) for (p1,p2,xAxPos,ch,f) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
-#                self.leftB = XLeftBound
-#                self.rightB = XRightBound
-#                self.topB = self.updatePlots[-1][2]
-#                self.bottomB = self.updatePlots[0][2]
+                self.updatePlots = [(p1,p2,xAxPos,ch) for (p1,p2,xAxPos,ch) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
 
                 self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
                 if self.index<0:
                     self.index = 0
                 if self.index>(len(self.maxDataLevels))-1:
                     self.index = (len(self.maxDataLevels))-1
-                print "-----------Debug--------------"
-                print "newly set index:", self.index
-                print "-----------Debug--------------"
-#                print "-----------Debug nacitania dat--------------"
-#                print "nastavujem top na: ", self.updatePlots[0][3]
-#                print "nastavujem bottom na: ", self.updatePlots[-1][3]
-#                print "nastavujem right bound na: ", XRightBound
-#                print "nastavujem left bound na: ", XLeftBound
-#                print "-----------Debug nacitania dat--------------"
+#                print "-----------Debug--------------"
+#                print "newly set index:", self.index
+#                print "-----------Debug--------------"
                 self.worker.loadData(self.updatePlots[0][3],self.updatePlots[-1][3],XLeftBound,XRightBound, self.index,self.h5File,self.h5Path)
 
     def slidersMngFunc(self):
+
+        "Manages synchronisation of sliders." 
+ 
         for w in self.wins:
             w.plotSliderUpdate(self.slider.value())
 
@@ -357,7 +374,12 @@ class vizEEG(QtGui.QMainWindow):
             w.showData(self.slider.value())
 
     def openNewPlotWin(self):
+
+        "Opens a new window with one chosen channel."
+
         if self.minmaxBool:
+
+            #Load the necessary data from the data-set.
             visXRange = self.lr.getRegion()[1] - self.lr.getRegion()[0]
             root = Tkinter.Tk()
             sw = root.winfo_screenwidth()
@@ -372,12 +394,15 @@ class vizEEG(QtGui.QMainWindow):
             yData = []
             chans = [] 
             i = 0
+
+            #Find the specific channel.
             for cb in self.checkBoxes:
                 if (cb.isChecked()):
                     yData.append([self.maxDataLevels[tempIndex][left:right,i], self.minDataLevels[tempIndex][left:right, i]])
                     chans.append(i)
                 i += 1            
         else:
+            #The same as mentioned but with a small data-set
             lb = int(np.ceil(self.lr.getRegion()[0]))
             rb = int(np.ceil(self.lr.getRegion()[1]))
             xData = range(self.dataset.shape[0])[lb:rb]
@@ -389,23 +414,33 @@ class vizEEG(QtGui.QMainWindow):
                     yData.append([self.dataset[lb:rb,i], None])
                     chans.append(i)
                 i += 1
+
+        #If the user has not chosen any channel, warn them.         
         if len(yData) == 0:
             self.msgbox.setText("Please, choose at least one channel to display.")
             self.msgbox.exec_()
         else:
+            
+            #Create and open the window.
             plWindow = winCl.PlotWindow([xData,yData,chans])
             self.wins.append(plWindow)
             plWindow.showData()
 
     def openPSWin(self):
+     
+        "Opens a new window with a chosen channel with its time-frequency spectrum."
+
         numOfChans = 0
         i = 0
+
+        #Find the chosen channel.     
         for cb in self.checkBoxes:
             if (cb.isChecked()):
                 numOfChans += 1
                 chanNum = i
             i += 1
 
+        #If none was chosen, issue warning, else load necessary data and create the window.
         if numOfChans != 1:
             self.msgbox.setText("Please, choose exactly one channel per window.")
             self.msgbox.exec_()
@@ -429,12 +464,17 @@ class vizEEG(QtGui.QMainWindow):
             window.showPowSpec() 
     
     def openMatrixWin(self):
+
+        "Opens a new window with a picture of a correlation matrix."
+
         matWindow = winCl.CorrMatrixWindow(self.matrixData, 10, 2)
         self.matWins.append(matWindow)
-        #if matWindow.ok:
         matWindow.showData(self.slider.value())
 
     def shiftChange(self, sb): #sb is spinbox
+
+        "Handles the spinbox that manages the distance between displayed plots."
+
         val = sb.value()
         if self.minmaxBool:
             change = val - self.plots[1][2]

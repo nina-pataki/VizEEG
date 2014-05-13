@@ -6,7 +6,14 @@ import Tkinter
 
 class PlotWindow(QtGui.QMainWindow):
     #TODO test if setAttribute(55) works
+
+    """Class that creates a new window with a specific channel. 
+       Optionally, it can display a time-frequency spectrum."""
+
     def __init__(self, data, PSData=None): #data = [xData,yData,chans] where xData = range(lb,rb), yData = [maxdata, mindata], chans = [ch#]
+
+        "Initialises the Qt GUI and variables."
+  
         QtGui.QMainWindow.__init__(self)
         root = Tkinter.Tk()
         sw = root.winfo_screenwidth()
@@ -34,6 +41,9 @@ class PlotWindow(QtGui.QMainWindow):
         self.show()
         
     def showData(self):
+
+        "Function that shows the plot."
+
         shift = 0
         for i in range(len(self.data[1])):
             if self.data[1][i][1] is not None:
@@ -47,6 +57,12 @@ class PlotWindow(QtGui.QMainWindow):
             self.col2.addWidget(l) 
      
     def showPowSpec(self):
+
+        """Function that shows the plot and its time-frequency spectrum.
+           The user is asked for the colours that should be used in the spectrum.
+           If Cancel is clicked, the spectrum is displayed in gray scale."""
+
+        #Some more initialisation.
         self.setWindowTitle("vizEEG - Time-frequency Spectrum display")
         self.img = pg.ImageView()
         self.col1.addWidget(self.img)
@@ -62,6 +78,8 @@ class PlotWindow(QtGui.QMainWindow):
         msgBox.setWindowTitle("vizEEG: Colour Error")
 
         if self.ok:
+           
+            #If the input was without an error, parse the user input.
             parsed = re.findall("\d{0,3},\d{0,3},\d{0,3}", colours)
             if len(parsed) < 2 or len(parsed) > 3:
                 self.ok = False
@@ -78,6 +96,8 @@ class PlotWindow(QtGui.QMainWindow):
                     self.r3 = int(parsed[2].split(',')[0])
                     self.g3 = int(parsed[2].split(',')[1])
                     self.b3 = int(parsed[2].split(',')[2])
+
+                #Check if the input colours are in a proper format.
                 okRange = range(256)
                 areColsOk = self.r1 in okRange and self.r2 in okRange and self.g1 in okRange and self.g2 in okRange and self.b1 in okRange and self.b2 in okRange
 
@@ -89,10 +109,13 @@ class PlotWindow(QtGui.QMainWindow):
                     msgBox.setText("Colours are out of RGB range. \nPlease, input 2 or 3 colours in format RRR,GGG,BBB separated by space, where RRR or GGG or BBB are numbers in range 0-255.")
                     msgBox.exec_()            
 
+        #Create the gray scale image.
         #makeRGBA outputs a tuple (imgArray,isThereAlphaChannel?)
         TFRGBImg = pg.makeRGBA(self.PSData[:,:,self.data[2][0]], levels=[np.amin(self.PSData[:,:,self.data[2][0]]), np.amax(self.PSData[:,:,self.data[2][0]])])[0]
 
         if self.ok:
+            
+            #Colour the image with 2 colours.
             TFRGBCol = np.zeros(TFRGBImg.shape, dtype=TFRGBImg.dtype)
             if self.r3 is None:
                 TFRGBCol[:,:,0] = (TFRGBImg[:,:,0]/255.0)*self.r1 + (1 - (TFRGBImg[:,:,0].astype(int)/255.0))*self.r2
@@ -101,6 +124,8 @@ class PlotWindow(QtGui.QMainWindow):
                 TFRGBCol[:,:,3] = 255
 
             else: 
+                
+                #Colour the image with 3 colours.
                 a = ((TFRGBImg[:,:,0]/128)*(TFRGBImg[:,:,0]/255.0))+(abs(TFRGBImg[:,:,0].astype(int)/128 - 1)*(TFRGBImg[:,:,0]/128.0))
                 b = ((TFRGBImg[:,:,0]/128)*self.r3)+(abs(TFRGBImg[:,:,0].astype(int)/128 - 1)*self.r2)
                 c = 1 - (((TFRGBImg[:,:,0]/128)*(TFRGBImg[:,:,0]/255.0))+(abs(TFRGBImg[:,:,0].astype(int)/128 - 1)*(TFRGBImg[:,:,0]/128.0)))
@@ -128,6 +153,8 @@ class PlotWindow(QtGui.QMainWindow):
         colOptions = ["0,0,255 255,0,0", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
         return QtGui.QInputDialog.getItem(self, "vizEEG", text, colOptions, editable=True)
 
+    #Slider management functions.
+
     def plotSliderUpdate(self, val):
         self.plotSlider.setPos(val)
 
@@ -144,7 +171,14 @@ class PlotWindow(QtGui.QMainWindow):
 
 class CorrMatrixWindow(QtGui.QMainWindow):
 
+    """Class for displaying the correlation matrix. If the user clicks Cancel during
+       the colour input dialog the matrix shows in gray scale.
+    """
+
     def __init__(self, matData, compWinSize, compWinStep):
+
+        "Initialise the GUI and variables."
+
         QtGui.QMainWindow.__init__(self)
         self.setWindowTitle("vizEEG - Correlation Matrix display")
         root = Tkinter.Tk()
@@ -162,7 +196,9 @@ class CorrMatrixWindow(QtGui.QMainWindow):
         msgBox = QtGui.QMessageBox()
         msgBox.setWindowTitle("vizEEG: Colour Error")
 
-        if self.ok: 
+        if self.ok:
+
+            #Parse the user input. 
             parsed = re.findall("\d{0,3},\d{0,3},\d{0,3}", colours)
             if len(parsed) < 2 or len(parsed) > 3:
                 self.ok = False
@@ -179,6 +215,8 @@ class CorrMatrixWindow(QtGui.QMainWindow):
                     self.r3 = int(parsed[2].split(',')[0])
                     self.g3 = int(parsed[2].split(',')[1])
                     self.b3 = int(parsed[2].split(',')[2])
+
+                #Check if the colours are in the proper format.
                 okRange = range(256)
                 areColsOk = self.r1 in okRange and self.r2 in okRange and self.g1 in okRange and self.g2 in okRange and self.b1 in okRange and self.b2 in okRange 
 
@@ -196,6 +234,9 @@ class CorrMatrixWindow(QtGui.QMainWindow):
         return QtGui.QInputDialog.getItem(self, "vizEEG", text, colOptions, editable=True)
         
     def showData(self, slPos):
+
+        "Loads the data into a displaying object."
+
         temp = slPos - (self.cWSize/2)
         if temp < 0:
             pos = 0
@@ -205,9 +246,11 @@ class CorrMatrixWindow(QtGui.QMainWindow):
             else:
                 pos = (temp / self.cWStep) + 1
 
+        #Create the gray scale image.
         matRGB = pg.makeRGBA(self.matData[:,:,pos], levels=[np.amin(self.matData[:,:,pos]), np.amax(self.matData[:,:,pos])])[0]
         if self.ok:
 
+            #Colours the gray scale image with 2 colours.
             matRGBCol = np.zeros(matRGB.shape, dtype=matRGB.dtype)
             if self.r3 is None: 
                 matRGBCol[:,:,0] = (matRGB[:,:,0]/255.0)*self.r1 + (1 - (matRGB[:,:,0]/255.0))*self.r2
@@ -216,6 +259,8 @@ class CorrMatrixWindow(QtGui.QMainWindow):
                 matRGBCol[:,:,3] = 255
 
             else: 
+
+                #Or with 3 colours.
                 a = ((matRGB[:,:,0]/128)*(matRGB[:,:,0]/255.0))+(abs(matRGB[:,:,0].astype(int)/128 - 1)*(matRGB[:,:,0]/128.0))
                 b = ((matRGB[:,:,0]/128)*self.r3)+(abs(matRGB[:,:,0].astype(int)/128 - 1)*self.r2)
                 c = 1 - (((matRGB[:,:,0]/128)*(matRGB[:,:,0]/255.0))+(abs(matRGB[:,:,0].astype(int)/128 - 1)*(matRGB[:,:,0]/128.0)))
