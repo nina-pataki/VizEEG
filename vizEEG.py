@@ -211,9 +211,9 @@ class vizEEG(QtGui.QMainWindow):
                 y2 = self.minDataLevels[self.index][:,ch]
                 p1 = self.plWidget.plot(x=x,y=y1+shift)
                 p2 = self.plWidget.plot(x=x,y=y2+shift)
-               # fill = pg.FillBetweenItem(p1,p2,'w')
-               # self.plWidget.addItem(fill)
-                self.plots.append([p1,p2,shift,ch])
+                fill = pg.FillBetweenItem(p1,p2,'w')
+                self.plWidget.addItem(fill)
+                self.plots.append([p1,p2,shift,ch,fill])
 #                print "channel ",ch ," finished plotting"
                 shift+=5000
 
@@ -278,12 +278,13 @@ class vizEEG(QtGui.QMainWindow):
 
         i=0
         if not self.worker.stopping:
-            for (p1,p2,sh,ch) in self.updatePlots:
+            for (p1,p2,sh,ch,f) in self.updatePlots:
                 p1.setData(x=self.worker.x,y=self.worker.y1[:,i]+sh)
                 p2.setData(x=self.worker.x,y=self.worker.y2[:,i]+sh)
                 #self.plWidget.removeItem(f)
                 #f = pg.FillBetweenItem(p1,p2,'w')
                 #self.plWidget.addItem(f)
+                f.setCurves(p1,p2)
                 i+=1
 
             self.leftB = self.worker.x[0]
@@ -347,7 +348,7 @@ class vizEEG(QtGui.QMainWindow):
 
                 visYRange = int(self.vb.viewRange()[1][1] - self.vb.viewRange()[1][0])
 
-                self.updatePlots = [(p1,p2,xAxPos,ch) for (p1,p2,xAxPos,ch) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
+                self.updatePlots = [(p1,p2,xAxPos,ch,f) for (p1,p2,xAxPos,ch,f) in self.plots if xAxPos>=self.vb.viewRange()[1][0]-visYRange/4 and xAxPos<=self.vb.viewRange()[1][1]+visYRange/4]
 
                 self.index =  int(np.floor(math.log(visXRange/self.vb.width() * VPP,LOG)))
                 if self.index<0:
@@ -488,6 +489,7 @@ class vizEEG(QtGui.QMainWindow):
                 p[0].setData(x=x1,y=y1+changeInShift)
                 p[1].setData(x=x2,y=y2+changeInShift)
                 p[2] = originalShift+changeInShift
+                p[4].setCurves(p[0],p[1])
         else:
             originalShift = self.plots[1][1]
             change = val - self.plots[1][1]
