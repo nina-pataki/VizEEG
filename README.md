@@ -3,11 +3,7 @@ Python scripts for displaying EEG data.
 vizEEG run instructions
 
 In order to run vizEEG it is necessary to install following packages:
-PyQt 4.8 and higher
-numpy
-scipy
-pyqtgraph (developer version from github, or newer than 0.9.8 version)
-h5py
+PyQt 4.8 and higher, numpy, scipy, pyqtgraph (developer version from github, or newer than 0.9.8 version), h5py
 
 Only argument that is mandatory while running the application is
 a path to the file, if the file does not contain data-sets according
