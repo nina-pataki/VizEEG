@@ -31,7 +31,6 @@ class PlotWindow(QtGui.QMainWindow):
         cw.setLayout(self.layout)
         self.col1.addWidget(self.plot)
         self.data = data
-#        self.setAttribute(55) #sets the window to delete on closing
         self.plotSlider = pg.InfiniteLine(pos=0, bounds=[self.data[0][0],self.data[0][-1]], movable=True, pen='y')
         self.plot.addItem(self.plotSlider)
         self.PSData = PSData
@@ -150,7 +149,7 @@ class PlotWindow(QtGui.QMainWindow):
             self.img.setImage(TFRGBImg)
 
     def colourInput(self, text):
-        colOptions = ["0,0,255 255,0,0", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
+        colOptions = ["255,0,0 0,0,255", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
         return QtGui.QInputDialog.getItem(self, "vizEEG", text, colOptions, editable=True)
 
     #Slider management functions.
@@ -230,7 +229,7 @@ class CorrMatrixWindow(QtGui.QMainWindow):
         self.show()
 
     def colourInput(self, text):
-        colOptions = ["0,0,255 255,0,0", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
+        colOptions = ["255,0,0 0,0,255", "0,255,0 255,0,0","0,0,255 0,255,0 255,0,0"]
         return QtGui.QInputDialog.getItem(self, "vizEEG", text, colOptions, editable=True)
         
     def showData(self, slPos):
